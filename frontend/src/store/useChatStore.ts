@@ -282,6 +282,7 @@ export const useChatStore = create<ChatStore>()(
                 const isGroup = Boolean(activeChat.isGroup);
                 const tempId = `temp-${Date.now()}-${Math.random()}`;
 
+                // Optimistic Mesaja Profil Resmini Ekle
                 const optimisticMsg: Message = {
                     id: tempId,
                     text,
@@ -289,6 +290,7 @@ export const useChatStore = create<ChatStore>()(
                     receiver_id: isGroup ? null : activeChat.id,
                     group_id: isGroup ? activeChat.id : null,
                     sender_name: currentUser.name,
+                    sender_image: currentUser.image || null, // 👈 Eklendi
                     created_at: new Date().toISOString(),
                     isOptimistic: true,
                 };
@@ -300,6 +302,7 @@ export const useChatStore = create<ChatStore>()(
                     },
                 }));
 
+                // Veritabanına sender_image ile birlikte kaydet
                 const { data, error } = await supabase
                     .from("messages")
                     .insert([{
@@ -308,6 +311,7 @@ export const useChatStore = create<ChatStore>()(
                         receiver_id: isGroup ? null : activeChat.id,
                         group_id: isGroup ? activeChat.id : null,
                         sender_name: currentUser.name,
+                        sender_image: currentUser.image || null, // 👈 Eklendi
                     }])
                     .select()
                     .single();
@@ -322,10 +326,9 @@ export const useChatStore = create<ChatStore>()(
                         },
                     }));
 
-                    // ✉️ BACKEND'E E-POSTA BİLDİRİM İSTEĞİ (RENDER)
+                    // E-Posta Bildirimi Tetikleme
                     if (!isGroup && activeChat.id) {
-                        const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://messenger-backend-lido.onrender.com";
-
+                        const backendUrl = "https://messenger-backend-lido.onrender.com";
                         fetch(`${backendUrl}/api/send-message-notification`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
@@ -334,10 +337,7 @@ export const useChatStore = create<ChatStore>()(
                                 senderName: currentUser.name,
                                 messageText: text,
                             }),
-                        })
-                            .then((res) => res.json())
-                            .then((resData) => console.log("Mail Bildirim Sonucu:", resData))
-                            .catch((err) => console.error("Mail isteği hatası:", err));
+                        }).catch((err) => console.error("Mail isteği hatası:", err));
                     }
                 }
             },
