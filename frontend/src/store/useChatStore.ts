@@ -111,7 +111,8 @@ export const useChatStore = create<ChatStore>()(
 
             // Mesajlar silinse bile kayıtlı sohbetleri koruyarak yenilerini ekler
             fetchConversations: async () => {
-                const { currentUser, conversations } = get();
+                // 114. satırı şu şekilde güncelle:
+                const { currentUser } = get();
                 if (!currentUser) return;
 
                 const { data } = await supabase

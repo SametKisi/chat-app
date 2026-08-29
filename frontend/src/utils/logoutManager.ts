@@ -26,7 +26,6 @@ class LogoutManager {
             'user-initiated': 'Çıkış yapıldı.',
         };
 
-        const msg = customMessage || messages[reason] || 'Oturumunuz kapatıldı.';
 
         if (navigate) navigate('/login');
         else window.location.href = '/login';
