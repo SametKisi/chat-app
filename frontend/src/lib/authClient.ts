@@ -1,8 +1,7 @@
 import { createAuthClient } from 'better-auth/react';
 
-// Canlıda Render URL'i, lokalde localhost
-const backendUrl = import.meta.env.VITE_AUTH_API_URL || 'https://messenger-backend-lido.onrender.com';
-const baseURL = `${backendUrl}/api/auth`;
+// Canlıda Render URL'i, lokalde localhost (Sonunda /api/auth OLMAMALI)
+const baseURL = import.meta.env.VITE_AUTH_API_URL || 'https://messenger-backend-lido.onrender.com';
 
 export const TOKEN_KEY = 'bearer_token';
 
@@ -10,7 +9,7 @@ export const getAuthToken = () => sessionStorage.getItem(TOKEN_KEY);
 export const clearAuthToken = () => sessionStorage.removeItem(TOKEN_KEY);
 
 export const authClient = createAuthClient({
-    baseURL,
+    baseURL, // Better-Auth /api/auth eklemesini otomatik yapar
     fetchOptions: {
         credentials: 'omit',
         auth: {
