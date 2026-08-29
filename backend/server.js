@@ -4,21 +4,41 @@ import dotenv from 'dotenv';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { supabase } from './supabaseClient.js';
-import meRoutes from './routes/me.js'; // requireAuth ve /me rotalarının olduğu dosya
+import meRoutes from './routes/me.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// CORS Ayarları (Bearer token header'ı için)
-app.use(cors({
-    origin: ['http://localhost:5174', 'https://7d28-91-93-71-131.ngrok-free.app'],
-    credentials: true,
-    exposedHeaders: ['set-auth-token']
-}));
+// İzin verilen adresler
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://chat-app-samet12kisi-9457.vercel.app',
+    'https://7d28-91-93-71-131.ngrok-free.app',
+    process.env.FRONTEND_URL,
+    process.env.TRUSTED_ORIGINS
+].filter(Boolean);
 
-// Better-Auth rotaları (express.json()'dan önce veya sonra toNodeHandler ile çalışır)
+const corsOptions = {
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+            callback(null, true);
+        } else {
+            callback(new Error('CORS engellendi: ' + origin));
+        }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'set-auth-token'],
+    exposedHeaders: ['set-auth-token']
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // Preflight OPTIONS istekleri için
+
+// Better-Auth rotaları
 app.all('/api/auth/*splat', toNodeHandler(auth));
 
 app.use(express.json());

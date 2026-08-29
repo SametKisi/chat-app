@@ -1,10 +1,19 @@
 import { betterAuth } from 'better-auth';
 import { bearer } from 'better-auth/plugins';
-import { APIError } from 'better-auth/api'; // APIError eklendi
+import { APIError } from 'better-auth/api';
 import { pool } from '../db.js';
 import dotenv from 'dotenv';
 
 dotenv.config();
+
+const trustedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'https://chat-app-samet12kisi-9457.vercel.app',
+    'https://7d28-91-93-71-131.ngrok-free.app',
+    process.env.FRONTEND_URL,
+    process.env.TRUSTED_ORIGINS
+].filter(Boolean);
 
 export const auth = betterAuth({
     database: pool,
@@ -29,7 +38,6 @@ export const auth = betterAuth({
                         );
 
                         if (checkUser.rows.length > 0) {
-                            // Doğrudan Better-Auth standart hata formatında fırlatıyoruz:
                             throw new APIError("BAD_REQUEST", {
                                 message: "Bu kullanıcı adı zaten alınmış.",
                             });
@@ -43,13 +51,13 @@ export const auth = betterAuth({
 
     advanced: {
         defaultCookieAttributes: {
-            sameSite: "lax",
-            secure: false,
+            sameSite: "none",
+            secure: true,
         },
         trustedProxyHeaders: true,
     },
     secret: process.env.BETTER_AUTH_SECRET,
-    baseURL: process.env.BETTER_AUTH_URL,
+    baseURL: process.env.BETTER_AUTH_URL || 'https://messenger-backend-lido.onrender.com',
     emailAndPassword: {
         enabled: true,
     },
@@ -57,11 +65,7 @@ export const auth = betterAuth({
         expiresIn: 60 * 60 * 24 * 30,
         updateAge: 60 * 60 * 24,
     },
-    trustedOrigins: [
-        process.env.FRONTEND_URL || 'http://localhost:5173',
-        'http://localhost:5174',
-        'https://7d28-91-93-71-131.ngrok-free.app',
-    ],
+    trustedOrigins,
     plugins: [
         bearer(),
     ],
