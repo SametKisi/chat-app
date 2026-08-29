@@ -10,7 +10,7 @@ const SideBar = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState("");
     const { users, loading } = useSearchUsers(searchTerm);
-    const [isLoading, setIsLoding] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const session = useSession();
 
     const {
@@ -20,8 +20,9 @@ const SideBar = () => {
         addConversation,
         setCurrentUser,
         fetchConversations,
-        currentUser
-    } = useChatStore();
+        currentUser,
+        resetStore
+    } = useChatStore() as any;
 
     useEffect(() => {
         const sessionData = session?.data as any;
@@ -41,13 +42,11 @@ const SideBar = () => {
         }
     }, [currentUser, fetchConversations]);
 
-    const { resetStore } = useChatStore();
-
     const handleLogout = async () => {
-        resetStore(); // Önceki oturumun state'ini sıfırla
-        setIsLoding(true)
+        resetStore();
+        setIsLoading(true);
         await logoutManager.performLogout("user-initiated", "Başarıyla çıkış yapıldı.", navigate);
-        setIsLoding(false)
+        setIsLoading(false);
     };
 
     const handleSelectUser = (user: ChatUser) => {
@@ -57,9 +56,11 @@ const SideBar = () => {
     };
 
     return (
-        <div className="w-80 flex flex-col h-full bg-[#202c33] p-3 select-none shrink-0 border-r border-[#2a3942]">
+        <div className={`w-full md:w-80 flex-col h-[100dvh] md:h-full bg-[#202c33] p-3 select-none shrink-0 border-r border-[#2a3942] ${
+            activeChat ? "hidden md:flex" : "flex"
+        }`}>
             {/* Arama Input Alanı */}
-            <div className="flex flex-row items-center bg-[#111b21] px-3 py-2 rounded-xl gap-2 border border-[#2a3942] focus-within:border-[#00a884] transition">
+            <div className="flex flex-row items-center bg-[#111b21] px-3 py-2.5 rounded-xl gap-2 border border-[#2a3942] focus-within:border-[#00a884] transition shrink-0">
                 <MagnifyingGlassIcon className="size-5 text-gray-400 shrink-0" />
                 <input
                     value={searchTerm}
@@ -81,9 +82,9 @@ const SideBar = () => {
                             <div
                                 key={user.id}
                                 onClick={() => handleSelectUser(user)}
-                                className="flex items-center gap-3 p-2 rounded-xl hover:bg-[#2a3942] cursor-pointer transition text-gray-200"
+                                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#2a3942] cursor-pointer transition text-gray-200"
                             >
-                                <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300">
+                                <div className="w-10 h-10 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300">
                                     <UserIcon size={20} />
                                 </div>
                                 <div className="flex flex-col min-w-0">
@@ -104,7 +105,7 @@ const SideBar = () => {
                                 Henüz sohbet yok. Yukarıdan bir kullanıcı aratın.
                             </div>
                         ) : (
-                            conversations.map((user) => {
+                            conversations.map((user: any) => {
                                 const isSelected = activeChat?.id === user.id;
                                 const hasUnread = (user.unreadCount || 0) > 0;
 
@@ -112,16 +113,18 @@ const SideBar = () => {
                                     <div
                                         key={user.id}
                                         onClick={() => handleSelectUser(user)}
-                                        className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition ${isSelected
+                                        className={`flex items-center justify-between p-3 md:p-2.5 rounded-xl cursor-pointer transition ${
+                                            isSelected
                                                 ? "bg-[#2a3942] text-white"
                                                 : hasUnread
                                                     ? "bg-[#00a884]/20 border border-[#00a884]/40 text-emerald-100 shadow-md animate-pulse"
                                                     : "hover:bg-[#2a3942]/60 text-gray-300"
-                                            }`}
+                                        }`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0">
-                                            <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 border ${hasUnread ? "bg-[#00a884] text-[#111b21] border-emerald-300" : "bg-slate-700 text-gray-300 border-slate-600"
-                                                }`}>
+                                            <div className={`w-10 h-10 md:w-9 md:h-9 rounded-full flex items-center justify-center shrink-0 border ${
+                                                hasUnread ? "bg-[#00a884] text-[#111b21] border-emerald-300" : "bg-slate-700 text-gray-300 border-slate-600"
+                                            }`}>
                                                 <UserIcon size={18} weight={hasUnread ? "bold" : "regular"} />
                                             </div>
                                             <div className="flex flex-col min-w-0">
@@ -148,10 +151,10 @@ const SideBar = () => {
             {/* Çıkış Yap */}
             <div
                 onClick={handleLogout}
-                className="flex text-gray-300 hover:text-red-400 text-sm font-medium items-center p-3 gap-3 cursor-pointer mt-auto rounded-xl hover:bg-red-500/10 transition border border-transparent hover:border-red-500/20"
+                className="flex text-gray-300 hover:text-red-400 text-sm font-medium items-center p-3 gap-3 cursor-pointer mt-auto rounded-xl hover:bg-red-500/10 transition border border-transparent hover:border-red-500/20 shrink-0"
             >
                 <SignOutIcon size={20} weight="bold" />
-                <span>{isLoading ? 'Çıkış yapılıyor...': 'Çıkış Yap'}</span>
+                <span>{isLoading ? 'Çıkış yapılıyor...' : 'Çıkış Yap'}</span>
             </div>
         </div>
     );
