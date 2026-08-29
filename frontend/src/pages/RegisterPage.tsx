@@ -37,8 +37,9 @@ const RegisterPage = () => {
         e.preventDefault();
         setError(null);
 
-        if (!formData.fullName || !formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
-            setError("Lütfen tüm alanları doldurun.");
+        // Zorunlu alan kontrolleri
+        if (!formData.fullName.trim() || !formData.username.trim() || !formData.email.trim() || !formData.password || !formData.confirmPassword) {
+            setError("Lütfen tüm zorunlu alanları doldurun.");
             return;
         }
 
@@ -65,9 +66,9 @@ const RegisterPage = () => {
         setLoading(true);
 
         try {
-            let uploadedImageUrl = "";
+            let uploadedImageUrl: string | undefined = undefined;
 
-            // 1. Profil Fotoğrafını Supabase Storage'a Yükle
+            // 1. Profil resmi seçilmişse Supabase Storage'a yükle
             if (imageFile) {
                 const fileExt = imageFile.name.split('.').pop();
                 const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
@@ -80,9 +81,7 @@ const RegisterPage = () => {
                         upsert: true
                     });
 
-                if (uploadError) {
-                    console.error("Fotoğraf yükleme hatası:", uploadError);
-                } else {
+                if (!uploadError) {
                     const { data: publicUrlData } = supabase.storage
                         .from('avatars')
                         .getPublicUrl(filePath);
@@ -90,14 +89,20 @@ const RegisterPage = () => {
                 }
             }
 
-            // 2. Better-Auth ile Kullanıcıyı Oluştur
-            const res = await signUp.email({
-                email: formData.email,
+            // 2. Kayıt payload'ı hazırla (image yoksa payload'a eklenmez)
+            const payload: Record<string, any> = {
+                email: formData.email.trim(),
                 password: formData.password,
-                name: formData.fullName,
-                username: formData.username,
-                image: uploadedImageUrl || null,
-            } as any);
+                name: formData.fullName.trim(),
+                username: formData.username.trim(),
+            };
+
+            if (uploadedImageUrl) {
+                payload.image = uploadedImageUrl;
+            }
+
+            // 3. Better-Auth ile kayıt oluştur
+            const res = await signUp.email(payload as any);
 
             if (res.error) {
                 setLoading(false);
@@ -105,12 +110,12 @@ const RegisterPage = () => {
                 return;
             }
 
-            // 3. user tablosunda image sütununu garanti güncelle
+            // 4. Eğer resim yüklendiyse user tablosundaki alanı güncelle
             if (uploadedImageUrl) {
                 await supabase
                     .from('user')
                     .update({ image: uploadedImageUrl })
-                    .eq('email', formData.email);
+                    .eq('email', formData.email.trim());
             }
 
             setLoading(false);
@@ -154,7 +159,7 @@ const RegisterPage = () => {
                         onChange={handleImageChange} 
                         className="hidden" 
                     />
-                    <span className="text-xs text-slate-400">Profil Fotoğrafı Ekle</span>
+                    <span className="text-xs text-slate-400">Profil Fotoğrafı Ekle (İsteğe Bağlı)</span>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex flex-col w-full gap-4">
