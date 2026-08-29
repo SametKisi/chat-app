@@ -118,7 +118,7 @@ export const useChatStore = create<ChatStore>()(
             },
 
             createGroup: async (name: string, memberIds: string[]) => {
-                const { currentUser, setActiveChat } = get();
+                const { currentUser } = get();
                 if (!currentUser) return;
 
                 const groupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
@@ -149,9 +149,9 @@ export const useChatStore = create<ChatStore>()(
                     unreadCount: 0
                 };
 
-                // State'e anında ekle ve aktif yap
+                // State'e ekle ve aktif sohbeti grup yap
                 set((state) => ({
-                    conversations: [groupUser, ...state.conversations.filter(c => c.id !== groupId)],
+                    conversations: [groupUser, ...state.conversations.filter((c) => c.id !== groupId)],
                     activeChat: groupUser
                 }));
             },
