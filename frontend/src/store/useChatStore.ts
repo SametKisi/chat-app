@@ -321,6 +321,24 @@ export const useChatStore = create<ChatStore>()(
                             ),
                         },
                     }));
+
+                    // ✉️ BACKEND'E E-POSTA BİLDİRİM İSTEĞİ (RENDER)
+                    if (!isGroup && activeChat.id) {
+                        const backendUrl = import.meta.env.VITE_BACKEND_URL || "https://messenger-backend-lido.onrender.com";
+
+                        fetch(`${backendUrl}/api/send-message-notification`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                receiverId: activeChat.id,
+                                senderName: currentUser.name,
+                                messageText: text,
+                            }),
+                        })
+                            .then((res) => res.json())
+                            .then((resData) => console.log("Mail Bildirim Sonucu:", resData))
+                            .catch((err) => console.error("Mail isteği hatası:", err));
+                    }
                 }
             },
 
