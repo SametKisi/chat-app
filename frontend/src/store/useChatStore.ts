@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { supabase } from "../../supabaseClient";
+import { sendNativeNotification } from "../utils/notification";
 
 export interface ChatUser {
     id: string;
@@ -327,10 +328,17 @@ export const useChatStore = create<ChatStore>()(
                 const { currentUser, activeChat, addConversation, conversations } = get();
                 if (!currentUser) return;
 
-                // 1. Grup Mesajı
+                // 1. Grup Mesajı Bildirimi & Senkronizasyonu
                 if (msg.group_id) {
                     const groupId = msg.group_id;
                     const isChatOpen = activeChat?.id === groupId;
+
+                    // Bildirimi gönder
+                    sendNativeNotification(
+                        `Grup: ${msg.sender_name || 'Yeni Mesaj'}`,
+                        msg.text,
+                        msg.sender_image
+                    );
 
                     const existingGroup = conversations.find((c) => c.id === groupId);
                     if (!existingGroup) {
@@ -367,16 +375,23 @@ export const useChatStore = create<ChatStore>()(
                     return;
                 }
 
-                // 2. Özel Mesaj
+                // 2. Özel Birebir Mesaj Bildirimi & Senkronizasyonu
                 if (msg.receiver_id === currentUser.id) {
                     const senderId = msg.sender_id;
                     const isChatOpen = activeChat?.id === senderId;
+
+                    // Bildirimi gönder
+                    sendNativeNotification(
+                        msg.sender_name || "Yeni Mesaj",
+                        msg.text,
+                        msg.sender_image
+                    );
 
                     const existingUser = conversations.find((c) => c.id === senderId);
                     if (!existingUser) {
                         supabase
                             .from("user")
-                            .select("id, name, username")
+                            .select("id, name, username, image")
                             .eq("id", senderId)
                             .single()
                             .then(({ data }) => {

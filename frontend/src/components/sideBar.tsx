@@ -6,14 +6,17 @@ import { useSearchUsers } from "../hooks/useSearchUsers";
 import { useChatStore, type ChatUser } from "../store/useChatStore";
 import { useSession } from "../lib/authClient";
 import { CreateGroupModal } from "./CreateGroupModal";
+import { SidebarSkeleton } from "./SideBarSkeleton";
+import { requestNotificationPermission } from "../utils/notification";
 import { supabase } from "../../supabaseClient";
 
 const SideBar = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState("");
     const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
-    const { users, loading } = useSearchUsers(searchTerm);
+    const { users, loading: isSearching } = useSearchUsers(searchTerm);
     const [isLoading, setIsLoading] = useState(false);
+    const [isFetchingConversations, setIsFetchingConversations] = useState(true);
     const session = useSession();
 
     const {
@@ -26,6 +29,11 @@ const SideBar = () => {
         currentUser,
         resetStore
     } = useChatStore() as any;
+
+    useEffect(() => {
+        // Sayfa açıldığında mobil/masaüstü bildirim izni iste
+        requestNotificationPermission();
+    }, []);
 
     useEffect(() => {
         const sessionData = session?.data as any;
@@ -42,7 +50,10 @@ const SideBar = () => {
 
     useEffect(() => {
         if (currentUser) {
-            fetchConversations();
+            setIsFetchingConversations(true);
+            fetchConversations().finally(() => {
+                setIsFetchingConversations(false);
+            });
 
             const groupChannel = supabase
                 .channel('realtime-group-sync')
@@ -111,36 +122,42 @@ const SideBar = () => {
                     {searchTerm.trim() !== "" ? (
                         <div className="flex flex-col gap-1">
                             <span className="text-[11px] font-semibold text-gray-400 px-2 py-1 uppercase tracking-wider">
-                                {loading ? "Aranıyor..." : `Sonuçlar (${users.length})`}
+                                {isSearching ? "Aranıyor..." : `Sonuçlar (${users.length})`}
                             </span>
 
-                            {users.filter((u: any) => u.id !== currentUser?.id).map((user: any) => (
-                                <div
-                                    key={user.id}
-                                    onClick={() => handleSelectUser({ ...user, isGroup: false })}
-                                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#2a3942] cursor-pointer transition text-gray-200"
-                                >
-                                    <div className="w-10 h-10 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300 overflow-hidden">
-                                        {user.image ? (
-                                            <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
-                                        ) : (
-                                            <UserIcon size={20} />
-                                        )}
+                            {isSearching ? (
+                                <SidebarSkeleton />
+                            ) : (
+                                users.filter((u: any) => u.id !== currentUser?.id).map((user: any) => (
+                                    <div
+                                        key={user.id}
+                                        onClick={() => handleSelectUser({ ...user, isGroup: false })}
+                                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#2a3942] cursor-pointer transition text-gray-200"
+                                    >
+                                        <div className="w-10 h-10 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300 overflow-hidden">
+                                            {user.image ? (
+                                                <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <UserIcon size={20} />
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-sm font-medium truncate">{user.name}</span>
+                                            <span className="text-xs text-[#00a884] truncate">{user.username || "@isimsiz"}</span>
+                                        </div>
                                     </div>
-                                    <div className="flex flex-col min-w-0">
-                                        <span className="text-sm font-medium truncate">{user.name}</span>
-                                        <span className="text-xs text-[#00a884] truncate">{user.username || "@isimsiz"}</span>
-                                    </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
 
-                            {!loading && users.length === 0 && (
+                            {!isSearching && users.length === 0 && (
                                 <p className="text-xs text-gray-500 text-center py-4">Kullanıcı bulunamadı.</p>
                             )}
                         </div>
                     ) : (
                         <div className="flex flex-col gap-1.5">
-                            {conversations.length === 0 ? (
+                            {isFetchingConversations ? (
+                                <SidebarSkeleton />
+                            ) : conversations.length === 0 ? (
                                 <div className="text-xs text-gray-500 text-center py-10">
                                     Henüz sohbet veya grup yok.
                                 </div>
