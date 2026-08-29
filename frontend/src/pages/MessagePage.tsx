@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ProfileLogo from "../constant/profilLogo.tsx";
-import { PaperPlaneRightIcon, UserIcon, ChatsTeardrop, Prohibit, ArrowLeft } from "@phosphor-icons/react";
+import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft } from "@phosphor-icons/react";
 import { useChatStore } from "../store/useChatStore.ts";
 import { supabase } from '../../supabaseClient';
 
@@ -23,6 +23,7 @@ const MessagePage = () => {
 
     const activeKey = activeChat ? activeChat.id : "";
     const messages = activeKey ? messageCache[activeKey] || [] : [];
+    const isGroup = Boolean(activeChat?.isGroup);
 
     const sendMessage = () => {
         if (newMessage.trim() === "" || !activeChat) return;
@@ -36,12 +37,13 @@ const MessagePage = () => {
         }
 
         const channel = supabase
-            .channel('realtime-messages-sync')
+            .channel(`realtime-chat-${activeKey}`)
             .on(
                 'postgres_changes',
                 { event: 'INSERT', schema: 'public', table: 'messages' },
                 (payload) => {
                     const msg = payload.new as any;
+                    // Kendi attığımız mesaj değilse al
                     if (msg.sender_id !== currentUser?.id) {
                         receiveIncomingMessage(msg);
                     }
@@ -65,16 +67,15 @@ const MessagePage = () => {
         scrollRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Mobilde sohbet seçili değilse boş ekran göstermek yerine gizle
     if (!activeChat) {
         return (
             <div className="hidden md:flex flex-col h-full w-full bg-[#0F3040] items-center justify-center text-gray-400 gap-3 select-none p-4">
                 <div className="w-16 h-16 rounded-full bg-[#111b21] flex items-center justify-center text-[#00a884] shadow-lg">
                     <ChatsTeardrop size={36} weight="bold" />
                 </div>
-                <h2 className="text-xl font-semibold text-gray-200">Sohbet Seçin</h2>
+                <h2 className="text-xl font-semibold text-gray-200">Sohbet veya Grup Seçin</h2>
                 <p className="text-sm text-gray-400 text-center max-w-sm">
-                    Mesajlaşmaya başlamak için sol menüden bir kişi seçin veya üstten kullanıcı aratın.
+                    Mesajlaşmaya başlamak için sol menüden bir kişi seçin, grup oluşturun veya arama yapın.
                 </p>
             </div>
         );
@@ -84,27 +85,25 @@ const MessagePage = () => {
         <div className="flex flex-col h-[100dvh] md:h-full w-full bg-[#0F3040] p-0 md:p-4 items-center justify-center">
             <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden">
                 
-                {/* Başlık (Geri Butonu ile) */}
+                {/* Başlık Alanı */}
                 <div className="flex items-center gap-2 md:gap-3 pb-3 mb-2 border-b border-[#325E6A]/50 shrink-0">
-                    {/* MOBİL GERİ BUTONU */}
                     <button 
                         type="button"
                         onClick={() => setActiveChat(null)}
                         className="md:hidden flex items-center justify-center p-2 rounded-xl text-gray-200 bg-[#111b21]/70 hover:bg-[#111b21] active:scale-95 transition shrink-0"
-                        title="Sohbet Listesine Dön"
                     >
                         <ArrowLeft size={20} weight="bold" />
                     </button>
 
                     <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0">
-                        <UserIcon size={20} />
+                        {isGroup ? <UsersThree size={22} weight="bold" /> : <UserIcon size={20} />}
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="font-bold text-gray-100 text-sm truncate">
                             {activeChat.name}
                         </span>
                         <span className="text-xs text-emerald-400 truncate">
-                            {activeChat.username}
+                            {isGroup ? "Grup Sohbeti" : activeChat.username}
                         </span>
                     </div>
                 </div>
@@ -114,6 +113,8 @@ const MessagePage = () => {
                     {messages.map((msg: any) => {
                         const isMe = msg.sender_id === currentUser?.id;
                         const isDeleted = msg.is_deleted;
+                        // Grupta kimin gönderdiğini belirle
+                        const senderDisplayName = isMe ? "Sen" : (msg.sender_name || msg.sender?.name || activeChat.name);
 
                         return (
                             <div
@@ -138,7 +139,6 @@ const MessagePage = () => {
                                         ) : (
                                             <button
                                                 onClick={() => removeMessageLocally(msg.id)}
-                                                title="Sohbetimden tamamen kaldır"
                                                 className="text-[10px] md:text-xs text-slate-700 hover:text-red-700 underline cursor-pointer font-medium"
                                             >
                                                 Kaldır
@@ -153,7 +153,7 @@ const MessagePage = () => {
                                     </div>
                                     <div className={`flex flex-col flex-1 min-w-0 ${isMe ? 'items-end text-right' : ''}`}>
                                         <span className="font-bold text-xs md:text-sm truncate text-gray-900">
-                                            {isMe ? "Sen" : activeChat.name}
+                                            {senderDisplayName}
                                         </span>
 
                                         {isDeleted ? (
@@ -178,7 +178,6 @@ const MessagePage = () => {
                                         {isDeleted && (
                                             <button
                                                 onClick={() => removeMessageLocally(msg.id)}
-                                                title="Sohbetimden tamamen kaldır"
                                                 className="text-[10px] md:text-xs text-slate-700 hover:text-red-700 underline cursor-pointer font-medium"
                                             >
                                                 Kaldır
@@ -192,14 +191,14 @@ const MessagePage = () => {
                     <div ref={scrollRef}></div>
                 </div>
 
-                {/* Mesaj Yazma Input Alanı */}
+                {/* Mesaj Gönderme */}
                 <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3 md:px-4 py-1.5 md:py-2 shrink-0">
                     <input
                         onKeyDown={(e) => { if (e.key === 'Enter') { sendMessage(); } }}
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         type="text"
-                        placeholder={`${activeChat.name} kullanıcısına mesaj yaz...`}
+                        placeholder={`${activeChat.name} ${isGroup ? 'grubuna' : 'kullanıcısına'} mesaj yaz...`}
                         className="flex-1 bg-transparent outline-none text-xs md:text-sm text-amber-50 placeholder:text-slate-300"
                     />
                     <button onClick={sendMessage} className="p-1">
