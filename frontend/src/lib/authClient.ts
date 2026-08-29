@@ -1,6 +1,8 @@
 import { createAuthClient } from 'better-auth/react';
 
-const baseURL = `${window.location.origin}/api/auth`;
+// Canlıda Render URL'i, lokalde localhost
+const backendUrl = import.meta.env.VITE_AUTH_API_URL || 'https://messenger-backend-lido.onrender.com';
+const baseURL = `${backendUrl}/api/auth`;
 
 export const TOKEN_KEY = 'bearer_token';
 
@@ -25,4 +27,4 @@ export const authClient = createAuthClient({
     },
 });
 
-export const { signIn, signUp, useSession } = authClient;
+export const { signIn, signUp, useSession, signOut } = authClient;

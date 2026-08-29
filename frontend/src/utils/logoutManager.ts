@@ -1,4 +1,4 @@
-import { authClient } from "../lib/authClient";
+import { authClient, clearAuthToken } from "../lib/authClient";
 
 class LogoutManager {
     public async performLogout(
@@ -7,7 +7,8 @@ class LogoutManager {
         navigate?: (path: string) => void
     ) {
         try {
-            await authClient.signOut();
+            clearAuthToken();
+            await (authClient.signOut as any)();
         } catch (err) {
             console.error("Logout error:", err);
         } finally {
