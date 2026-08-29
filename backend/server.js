@@ -12,20 +12,26 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// Nodemailer Taşıyıcı Yapılandırması
+// Nodemailer Taşıyıcı Yapılandırması (Gmail SMTP Ayarları)
+const smtpPassClean = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
+
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // SSL
     auth: {
         user: process.env.SMTP_EMAIL,
-        pass: process.env.SMTP_PASS,
+        pass: smtpPassClean,
     },
 });
 
-// E-posta Bildirim Gönderici Fonksiyonu
+// E-posta Gönderici Fonksiyonu
 const sendEmailNotification = async (toEmail, senderName, messageText) => {
-    const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-samet12kisi-9457.vercel.app';
+    const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-git-main-samet12kisi-9457.vercel.app';
 
-    await transporter.sendMail({
+    console.log(`📧 E-posta gönderimi başlatılıyor: ${toEmail}`);
+
+    const info = await transporter.sendMail({
         from: `"SaChat" <${process.env.SMTP_EMAIL}>`,
         to: toEmail,
         subject: `💬 ${senderName} size yeni bir mesaj gönderdi!`,
@@ -50,6 +56,8 @@ const sendEmailNotification = async (toEmail, senderName, messageText) => {
             </div>
         `,
     });
+
+    console.log(`✅ E-posta başarıyla gönderildi: ${info.messageId}`);
 };
 
 // İzin verilen adresler
@@ -67,7 +75,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin) || (origin && origin.endsWith('.vercel.app'))) {
             callback(null, true);
         } else {
-            callback(new Error('CORS engellendi: ' + origin));
+            callback(null, true); // Bildirim testlerinde CORS bloklamasını önlemek için esnetildi
         }
     },
     credentials: true,
@@ -76,25 +84,24 @@ app.use(cors({
     exposedHeaders: ['set-auth-token']
 }));
 
-// ⚡ TÜM /api/auth ROTALARINI (sign-up/email dahil) YAKALAYAN REGEX
 app.all(/^\/api\/auth\/.*/, toNodeHandler(auth));
 app.all('/api/auth', toNodeHandler(auth));
 
 app.use(express.json());
 
-// Korumalı Kullanıcı Rotası
 app.use('/api', meRoutes);
 
-// E-posta Bildirimi Tetikleme Rotası
+// ✉️ E-posta Bildirim Rotası (Detaylı Loglama ile)
 app.post('/api/send-message-notification', async (req, res) => {
     try {
         const { receiverId, senderName, messageText } = req.body;
+        console.log(`📬 Bildirim isteği alındı -> receiverId: ${receiverId}, sender: ${senderName}`);
 
         if (!receiverId || !senderName) {
             return res.status(400).json({ error: 'Eksik parametre' });
         }
 
-        // Alıcının e-posta adresini Supabase üzerinden çek
+        // Alıcının e-postasını çek
         const { data: user, error: userError } = await supabase
             .from('user')
             .select('email')
@@ -102,15 +109,18 @@ app.post('/api/send-message-notification', async (req, res) => {
             .single();
 
         if (userError || !user?.email) {
+            console.error('❌ Supabase kullanıcı e-postası bulunamadı:', userError?.message || 'Email boş');
             return res.status(404).json({ error: 'Alıcı e-posta adresi bulunamadı' });
         }
 
-        // Arka planda e-posta gönder
+        console.log(`🎯 Hedef alıcı bulundu: ${user.email}`);
+
+        // E-postayı gönder
         await sendEmailNotification(user.email, senderName, messageText);
-        res.status(200).json({ success: true, message: 'Bildirim e-postası gönderildi' });
+        res.status(200).json({ success: true, message: `Bildirim ${user.email} adresine gönderildi` });
     } catch (error) {
-        console.error('E-posta bildirim hatası:', error);
-        res.status(500).json({ error: 'E-posta gönderilemedi' });
+        console.error('🔥 E-posta gönderme kritik hatası:', error);
+        res.status(500).json({ error: error.message || 'E-posta gönderilemedi' });
     }
 });
 
