@@ -21,9 +21,10 @@ const allowedOrigins = [
     process.env.TRUSTED_ORIGINS
 ].filter(Boolean);
 
-const corsOptions = {
+// CORS middleware'i
+app.use(cors({
     origin: (origin, callback) => {
-        if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        if (!origin || allowedOrigins.includes(origin) || (origin && origin.endsWith('.vercel.app'))) {
             callback(null, true);
         } else {
             callback(new Error('CORS engellendi: ' + origin));
@@ -33,10 +34,7 @@ const corsOptions = {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'set-auth-token'],
     exposedHeaders: ['set-auth-token']
-};
-
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Preflight OPTIONS istekleri için
+}));
 
 // Better-Auth rotaları
 app.all('/api/auth/*splat', toNodeHandler(auth));
