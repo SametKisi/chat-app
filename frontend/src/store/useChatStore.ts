@@ -117,11 +117,15 @@ export const useChatStore = create<ChatStore>()(
                 });
             },
 
+            // === DÜZELTİLEN FONKSİYON ===
             createGroup: async (name: string, memberIds: string[]) => {
                 const { currentUser } = get();
                 if (!currentUser) return;
 
-                const groupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+                // crypto.randomUUID() -> groups.id kolonu uuid tipindeyse
+                // eski "grp-<timestamp>-<rand>" formatı geçersiz kayıt hatası veriyordu
+                const groupId = crypto.randomUUID();
+                const allMemberIds = Array.from(new Set([currentUser.id, ...memberIds]));
 
                 // 1. Gruplar tablosuna ekle
                 const { error: groupErr } = await supabase
@@ -130,11 +134,11 @@ export const useChatStore = create<ChatStore>()(
 
                 if (groupErr) {
                     console.error("Grup oluşturulamadı:", groupErr);
-                    return;
+                    alert("Grup oluşturulamadı: " + groupErr.message);
+                    return; // gerçek hata artık ekranda görünüyor, sessizce yutulmuyor
                 }
 
                 // 2. Üyeleri group_members tablosuna ekle (oluşturan kişi dahil)
-                const allMemberIds = Array.from(new Set([currentUser.id, ...memberIds]));
                 const memberRows = allMemberIds.map((uid) => ({
                     group_id: groupId,
                     user_id: uid,
@@ -146,6 +150,9 @@ export const useChatStore = create<ChatStore>()(
 
                 if (memErr) {
                     console.error("Grup üyeleri eklenemedi:", memErr);
+                    alert("Grup oluştu ama üyeler eklenemedi: " + memErr.message);
+                    // Grup DB'de var ama üyesiz kaldı - yine de aşağıda local state'e
+                    // ekliyoruz ki en azından kullanıcı grup ekranını görüp tekrar deneyebilsin
                 }
 
                 const newGroupItem: ChatUser = {
@@ -224,10 +231,10 @@ export const useChatStore = create<ChatStore>()(
                         state.conversations.forEach((u) => map.set(u.id, u));
                         [...groupList, ...userList].forEach((u) => {
                             const old = map.get(u.id);
-                            map.set(u.id, { 
-                                ...u, 
+                            map.set(u.id, {
+                                ...u,
                                 isGroup: u.isGroup ?? old?.isGroup,
-                                unreadCount: old?.unreadCount || 0 
+                                unreadCount: old?.unreadCount || 0
                             });
                         });
                         return { conversations: Array.from(map.values()) };
