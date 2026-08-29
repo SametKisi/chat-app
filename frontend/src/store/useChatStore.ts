@@ -121,33 +121,34 @@ export const useChatStore = create<ChatStore>()(
                 const { currentUser, addConversation, setActiveChat } = get();
                 if (!currentUser) return;
 
-                // 1. Gruplar tablosuna ekle
-                const { data: group, error: groupErr } = await supabase
-                    .from("groups")
-                    .insert([{ name, created_by: currentUser.id }])
-                    .select()
-                    .single();
+                const groupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-                if (groupErr || !group) {
+                // 1. Gruplar tablosuna ekle
+                const { error: groupErr } = await supabase
+                    .from("groups")
+                    .insert([{ id: groupId, name, created_by: currentUser.id }]);
+
+                if (groupErr) {
                     console.error("Grup oluşturulamadı:", groupErr);
                     return;
                 }
 
-                // 2. Üyeleri group_members tablosuna ekle (kendisi dahil)
+                // 2. Üyeleri group_members tablosuna ekle
                 const allMembers = Array.from(new Set([currentUser.id, ...memberIds])).map((uid) => ({
-                    group_id: group.id,
+                    group_id: groupId,
                     user_id: uid,
                 }));
 
                 await supabase.from("group_members").insert(allMembers);
 
                 const groupUser: ChatUser = {
-                    id: group.id,
-                    name: group.name,
+                    id: groupId,
+                    name: name,
                     username: "@grup",
                     isGroup: true,
                 };
 
+                // State'e anında bas
                 addConversation(groupUser, false);
                 setActiveChat(groupUser);
             },
@@ -156,60 +157,70 @@ export const useChatStore = create<ChatStore>()(
                 const { currentUser } = get();
                 if (!currentUser) return;
 
-                // --- 1. Kullanıcının Dahil Olduğu Grupları Çek ---
-                const { data: groupMemberships } = await supabase
-                    .from("group_members")
-                    .select("group_id, groups(id, name)")
-                    .eq("user_id", currentUser.id);
+                try {
+                    // 1. Dahil Olunan Grupları Çek
+                    const { data: memberRows } = await supabase
+                        .from("group_members")
+                        .select("group_id")
+                        .eq("user_id", currentUser.id);
 
-                const groupList: ChatUser[] = (groupMemberships || [])
-                    .map((item: any) => {
-                        if (!item.groups) return null;
-                        return {
-                            id: item.groups.id,
-                            name: item.groups.name,
-                            username: "@grup",
-                            isGroup: true,
-                        };
-                    })
-                    .filter(Boolean) as ChatUser[];
+                    let groupList: ChatUser[] = [];
+                    if (memberRows && memberRows.length > 0) {
+                        const groupIds = memberRows.map((m) => m.group_id);
+                        const { data: groupData } = await supabase
+                            .from("groups")
+                            .select("id, name")
+                            .in("id", groupIds);
 
-                // --- 2. Birebir Konuşulan Kullanıcıları Çek ---
-                const { data: userMsgs } = await supabase
-                    .from("messages")
-                    .select("sender_id, receiver_id")
-                    .is("group_id", null)
-                    .not("receiver_id", "is", null)
-                    .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
-
-                const otherUserIds = new Set<string>();
-                (userMsgs || []).forEach((m) => {
-                    if (m.sender_id && m.sender_id !== currentUser.id) otherUserIds.add(m.sender_id);
-                    if (m.receiver_id && m.receiver_id !== currentUser.id) otherUserIds.add(m.receiver_id);
-                });
-
-                let userList: ChatUser[] = [];
-                if (otherUserIds.size > 0) {
-                    const { data: users } = await supabase
-                        .from("user")
-                        .select("id, name, username")
-                        .in("id", Array.from(otherUserIds));
-
-                    if (users) {
-                        userList = users.map((u: any) => ({ ...u, isGroup: false }));
+                        if (groupData) {
+                            groupList = groupData.map((g) => ({
+                                id: g.id,
+                                name: g.name,
+                                username: "@grup",
+                                isGroup: true,
+                            }));
+                        }
                     }
-                }
 
-                // --- 3. Tüm Listeyi Birleştir ---
-                set((state) => {
-                    const map = new Map<string, ChatUser>();
-                    state.conversations.forEach((u) => map.set(u.id, u));
-                    [...groupList, ...userList].forEach((u) => {
-                        const old = map.get(u.id);
-                        map.set(u.id, { ...u, unreadCount: old?.unreadCount || 0 });
+                    // 2. Birebir Konuşulan Kullanıcıları Çek
+                    const { data: userMsgs } = await supabase
+                        .from("messages")
+                        .select("sender_id, receiver_id")
+                        .is("group_id", null)
+                        .not("receiver_id", "is", null)
+                        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
+
+                    const otherUserIds = new Set<string>();
+                    (userMsgs || []).forEach((m) => {
+                        if (m.sender_id && m.sender_id !== currentUser.id) otherUserIds.add(m.sender_id);
+                        if (m.receiver_id && m.receiver_id !== currentUser.id) otherUserIds.add(m.receiver_id);
                     });
-                    return { conversations: Array.from(map.values()) };
-                });
+
+                    let userList: ChatUser[] = [];
+                    if (otherUserIds.size > 0) {
+                        const { data: users } = await supabase
+                            .from("user")
+                            .select("id, name, username")
+                            .in("id", Array.from(otherUserIds));
+
+                        if (users) {
+                            userList = users.map((u: any) => ({ ...u, isGroup: false }));
+                        }
+                    }
+
+                    // 3. Birleştir ve State'e Yaz
+                    set((state) => {
+                        const map = new Map<string, ChatUser>();
+                        state.conversations.forEach((u) => map.set(u.id, u));
+                        [...groupList, ...userList].forEach((u) => {
+                            const old = map.get(u.id);
+                            map.set(u.id, { ...u, unreadCount: old?.unreadCount || 0 });
+                        });
+                        return { conversations: Array.from(map.values()) };
+                    });
+                } catch (err) {
+                    console.error("fetchConversations hatası:", err);
+                }
             },
 
             fetchMessages: async (targetChatId) => {
@@ -297,7 +308,7 @@ export const useChatStore = create<ChatStore>()(
                 const { currentUser, activeChat, addConversation, conversations } = get();
                 if (!currentUser) return;
 
-                // 1. Grup Mesajı Geldiyse
+                // 1. Grup Mesajı
                 if (msg.group_id) {
                     const groupId = msg.group_id;
                     const isChatOpen = activeChat?.id === groupId;
@@ -337,7 +348,7 @@ export const useChatStore = create<ChatStore>()(
                     return;
                 }
 
-                // 2. Birebir Özel Mesaj Geldiyse
+                // 2. Özel Mesaj
                 if (msg.receiver_id === currentUser.id) {
                     const senderId = msg.sender_id;
                     const isChatOpen = activeChat?.id === senderId;
