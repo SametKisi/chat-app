@@ -43,7 +43,6 @@ const SideBar = () => {
         if (currentUser) {
             fetchConversations();
 
-            // Realtime: Yeni grup veya üyelik geldiğinde sol listeyi anında yenile
             const groupChannel = supabase
                 .channel('realtime-group-sync')
                 .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, () => {
@@ -106,7 +105,7 @@ const SideBar = () => {
                     </button>
                 </div>
 
-                {/* Liste */}
+                {/* Sohbet / Grup Listesi */}
                 <div className="flex-1 overflow-y-auto my-3 flex flex-col gap-1.5 pr-1">
                     {searchTerm.trim() !== "" ? (
                         <div className="flex flex-col gap-1">
@@ -189,13 +188,33 @@ const SideBar = () => {
                     )}
                 </div>
 
-                {/* Çıkış */}
-                <div
-                    onClick={handleLogout}
-                    className="flex text-gray-300 hover:text-red-400 text-sm font-medium items-center p-3 gap-3 cursor-pointer mt-auto rounded-xl hover:bg-red-500/10 transition border border-transparent hover:border-red-500/20 shrink-0"
-                >
-                    <SignOutIcon size={20} weight="bold" />
-                    <span>{isLoading ? 'Çıkış yapılıyor...' : 'Çıkış Yap'}</span>
+                {/* Alt Kısım: Oturum Açan Profil Kartı & Çıkış */}
+                <div className="mt-auto flex flex-col gap-2 pt-2 border-t border-[#2a3942] shrink-0">
+                    {currentUser && (
+                        <div className="flex items-center gap-3 p-2 rounded-xl bg-[#111b21]/70 border border-[#2a3942]">
+                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0">
+                                <UserIcon size={20} weight="bold" />
+                            </div>
+                            <div className="flex flex-col min-w-0 flex-1">
+                                <span className="text-sm font-bold text-gray-200 truncate">
+                                    {currentUser.name}
+                                </span>
+                                <span className="text-xs text-emerald-400 truncate">
+                                    {currentUser.username}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Çıkış Yap Butonu */}
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="flex w-full text-gray-300 hover:text-red-400 text-sm font-medium items-center p-2.5 gap-3 cursor-pointer rounded-xl hover:bg-red-500/10 transition border border-transparent hover:border-red-500/20"
+                    >
+                        <SignOutIcon size={20} weight="bold" />
+                        <span>{isLoading ? 'Çıkış yapılıyor...' : 'Çıkış Yap'}</span>
+                    </button>
                 </div>
             </div>
         </>
