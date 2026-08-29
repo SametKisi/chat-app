@@ -80,20 +80,19 @@ const MessagePage = () => {
     }
 
     return (
-        <div className="flex flex-col h-[100dvh] md:h-full w-full bg-[#0F3040] p-0 md:p-4 items-center justify-center">
-            <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 md:relative flex flex-col h-[100dvh] w-full bg-[#0F3040] p-0 md:p-4 items-center justify-center overflow-hidden">
+            <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden justify-between">
                 
-                {/* Başlık */}
-                <div className="flex items-center gap-2 md:gap-3 pb-3 mb-2 border-b border-[#325E6A]/50 shrink-0">
+                {/* Başlık Alanı */}
+                <div className="flex items-center gap-2.5 pb-2.5 mb-1 border-b border-[#325E6A]/50 shrink-0 select-none">
                     <button 
                         type="button"
                         onClick={() => setActiveChat(null)}
-                        className="md:hidden flex items-center justify-center p-2 rounded-xl text-gray-200 bg-[#111b21]/70 hover:bg-[#111b21] active:scale-95 transition shrink-0"
+                        className="md:hidden flex items-center justify-center p-2 rounded-xl text-gray-200 bg-[#111b21]/70 hover:bg-[#111b21] active:scale-90 transition shrink-0"
                     >
                         <ArrowLeft size={20} weight="bold" />
                     </button>
 
-                    {/* Aktif Sohbet Profil Resmi */}
                     <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0 overflow-hidden">
                         {isGroup ? (
                             <UsersThree size={22} weight="bold" />
@@ -103,7 +102,7 @@ const MessagePage = () => {
                             <UserIcon size={20} />
                         )}
                     </div>
-                    <div className="flex flex-col min-w-0">
+                    <div className="flex flex-col min-w-0 flex-1">
                         <span className="font-bold text-gray-100 text-sm truncate">
                             {activeChat.name}
                         </span>
@@ -114,7 +113,7 @@ const MessagePage = () => {
                 </div>
 
                 {/* Mesaj Listesi */}
-                <div className="flex flex-col gap-3 md:gap-4 w-full flex-1 overflow-y-auto mb-3 md:mb-4 pr-1 md:pr-2">
+                <div className="flex flex-col gap-3 w-full flex-1 overflow-y-auto mb-2 pr-1 overscroll-contain">
                     {messages.map((msg: any) => {
                         const isMe = msg.sender_id === currentUser?.id;
                         const isDeleted = msg.is_deleted;
@@ -124,12 +123,12 @@ const MessagePage = () => {
                         return (
                             <div
                                 key={msg.id}
-                                className={`flex p-2.5 md:p-3 rounded-xl max-w-[90%] md:max-w-[75%] ${
+                                className={`flex p-2.5 md:p-3 rounded-2xl max-w-[85%] md:max-w-[75%] ${
                                     isMe ? 'self-end bg-blue-300' : 'bg-amber-500'
                                 } ${isDeleted ? 'opacity-80' : ''}`}
                             >
                                 {isMe && (
-                                    <div className="text-[10px] md:text-xs text-gray-800 flex-shrink-0 mr-2 md:mr-4 mt-auto flex items-center gap-1">
+                                    <div className="text-[10px] md:text-xs text-gray-800 flex-shrink-0 mr-2 md:mr-3 mt-auto flex items-center gap-1">
                                         <span>
                                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
@@ -153,12 +152,11 @@ const MessagePage = () => {
                                 )}
 
                                 <div className={`flex items-start gap-2 md:gap-3 flex-1 min-w-0 ${isMe ? 'flex-row-reverse' : ''}`}>
-                                    {/* Profil Resmi */}
-                                    <div className="w-8 h-8 rounded-full bg-slate-800/40 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
+                                    <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-slate-800/40 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
                                         {senderAvatar ? (
                                             <img src={senderAvatar} alt="Sender" className="w-full h-full object-cover" />
                                         ) : (
-                                            <UserIcon size={16} className="text-gray-800" />
+                                            <UserIcon size={15} className="text-gray-800" />
                                         )}
                                     </div>
 
@@ -181,7 +179,7 @@ const MessagePage = () => {
                                 </div>
 
                                 {!isMe && (
-                                    <div className="text-[10px] md:text-xs text-gray-800 flex-shrink-0 ml-2 md:mr-4 mt-auto flex items-center gap-1">
+                                    <div className="text-[10px] md:text-xs text-gray-800 flex-shrink-0 ml-2 md:mr-3 mt-auto flex items-center gap-1">
                                         <span>
                                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
@@ -202,21 +200,25 @@ const MessagePage = () => {
                     <div ref={scrollRef}></div>
                 </div>
 
-                {/* Mesaj Yazma Alanı */}
-                <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3 md:px-4 py-1.5 md:py-2 shrink-0">
+                {/* Mesaj Yazma Alanı (Mobil Uyumlu & 16px Font) */}
+                <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3.5 py-1 md:py-2 shrink-0 mb-safe">
                     <input
                         onKeyDown={(e) => { if (e.key === 'Enter') { sendMessage(); } }}
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         type="text"
-                        placeholder={`${activeChat.name} ${isGroup ? 'grubuna' : 'kullanıcısına'} mesaj yaz...`}
-                        className="flex-1 bg-transparent outline-none text-xs md:text-sm text-amber-50 placeholder:text-slate-300"
+                        placeholder="Mesaj yaz..."
+                        className="flex-1 bg-transparent outline-none text-base md:text-sm text-amber-50 placeholder:text-slate-300 py-1.5"
                     />
-                    <button onClick={sendMessage} className="p-1">
+                    <button 
+                        type="button"
+                        onClick={sendMessage} 
+                        className="p-1 active:scale-90 transition shrink-0"
+                    >
                         <PaperPlaneRightIcon
-                            size={26}
+                            size={24}
                             weight="fill"
-                            className="text-[#aba9a9] hover:text-amber-500 cursor-pointer transition-colors"
+                            className="text-[#aba9a9] hover:text-amber-400 active:text-amber-500 cursor-pointer transition-colors"
                         />
                     </button>
                 </div>
