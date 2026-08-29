@@ -21,18 +21,21 @@ console.log(`[SMTP CONFIG] Email: ${smtpEmail ? smtpEmail : '❌ TANIMLI DEĞİL
 console.log(`[SMTP CONFIG] Pass Uzunluğu: ${smtpPassClean ? smtpPassClean.length + ' karakter' : '❌ TANIMLI DEĞİL'}`);
 console.log('------------------------------------');
 
-// 2. Nodemailer Yapılandırması
+// 2. Nodemailer Yapılandırması (Bulut sunucuları için Port 587 + STARTTLS)
 const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // SSL
+    port: 587,
+    secure: false, // TLS
     auth: {
         user: smtpEmail,
         pass: smtpPassClean,
     },
+    tls: {
+        rejectUnauthorized: false
+    }
 });
 
-// Sunucu başlarken SMTP bağlantısını test et
+// Sunucu başlarken SMTP bağlantısını doğrula
 transporter.verify((error, success) => {
     if (error) {
         console.error('❌ [SMTP BAĞLANTI HATASI] Gmail SMTP doğrulaması başarısız:', error.message);
@@ -41,18 +44,9 @@ transporter.verify((error, success) => {
     }
 });
 
-// İzin verilen adresler
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://chat-app-samet12kisi-9457.vercel.app',
-    process.env.FRONTEND_URL,
-    process.env.TRUSTED_ORIGINS
-].filter(Boolean);
-
+// CORS Yapılandırması
 app.use(cors({
     origin: (origin, callback) => {
-        // Her yerden gelen isteğe izin ver (loglama & test için)
         callback(null, true);
     },
     credentials: true,
@@ -61,20 +55,22 @@ app.use(cors({
     exposedHeaders: ['set-auth-token']
 }));
 
+// Better-Auth Rotaları
 app.all(/^\/api\/auth\/.*/, toNodeHandler(auth));
 app.all('/api/auth', toNodeHandler(auth));
 
 app.use(express.json());
 
-// Request logger
+// Gelen istek loglayıcı
 app.use((req, res, next) => {
     console.log(`[GELEN İSTEK] ${req.method} -> ${req.url}`);
     next();
 });
 
+// Korumalı Kullanıcı Rotaları
 app.use('/api', meRoutes);
 
-// ✉️ DETAYLI E-POSTA BİLDİRİM ROTASI
+// ✉️ E-POSTA BİLDİRİM ROTASI
 app.post('/api/send-message-notification', async (req, res) => {
     const startTime = Date.now();
     console.log('\n================== 📬 BİLDİRİM İSTEĞİ BAŞLADI ==================');
@@ -90,7 +86,7 @@ app.post('/api/send-message-notification', async (req, res) => {
 
         console.log(`🔍 [1/3] Supabase 'user' tablosunda aranıyor: ID = "${receiverId}"`);
 
-        // Supabase'den kullanıcıyı çek
+        // Supabase'den alıcının e-posta adresini çek
         const { data: user, error: userError } = await supabase
             .from('user')
             .select('id, name, username, email')
@@ -99,7 +95,6 @@ app.post('/api/send-message-notification', async (req, res) => {
 
         if (userError) {
             console.error('❌ [SUPABASE HATASI]:', userError.message);
-            console.error('❌ [HATA DETAYI]:', userError);
             return res.status(404).json({ error: `Supabase hatası: ${userError.message}` });
         }
 
@@ -108,7 +103,7 @@ app.post('/api/send-message-notification', async (req, res) => {
             return res.status(404).json({ error: 'Alıcı bulundu ancak e-posta adresi boş.' });
         }
 
-        console.log(`🎯 [2/3] Alıcı Bilgileri Bulundu -> İsim: ${user.name}, Kullanıcı Adı: ${user.username}, Email: ${user.email}`);
+        console.log(`🎯 [2/3] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
 
         const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-samet12kisi-9457.vercel.app';
 
