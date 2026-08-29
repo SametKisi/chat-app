@@ -7,6 +7,7 @@ export interface ChatUser {
     name: string;
     username: string;
     unreadCount?: number;
+    isGroup?: boolean;
 }
 
 export interface Message {
@@ -14,6 +15,8 @@ export interface Message {
     text: string;
     sender_id: string;
     receiver_id: string | null;
+    group_id?: string | null;
+    sender_name?: string | null;
     created_at: string;
     is_deleted?: boolean;
     isOptimistic?: boolean;
@@ -39,6 +42,7 @@ interface ChatStore {
     deletedMessage: (id: string) => Promise<void>;
     handleRemoteDelete: (id: string) => void;
     removeMessageLocally: (id: string) => void;
+    createGroup: (name: string, memberIds: string[]) => Promise<void>;
     resetStore: () => void;
 }
 
@@ -98,7 +102,11 @@ export const useChatStore = create<ChatStore>()(
                         return {
                             conversations: state.conversations.map((c) =>
                                 c.id === user.id
-                                    ? { ...c, unreadCount: markUnread ? (c.unreadCount || 0) + 1 : c.unreadCount }
+                                    ? { 
+                                        ...c, 
+                                        unreadCount: markUnread ? (c.unreadCount || 0) + 1 : c.unreadCount,
+                                        isGroup: user.isGroup ?? c.isGroup 
+                                      }
                                     : c
                             ),
                         };
@@ -109,24 +117,78 @@ export const useChatStore = create<ChatStore>()(
                 });
             },
 
+            createGroup: async (name: string, memberIds: string[]) => {
+                const { currentUser, addConversation, setActiveChat } = get();
+                if (!currentUser) return;
+
+                // 1. Gruplar tablosuna ekle
+                const { data: group, error: groupErr } = await supabase
+                    .from("groups")
+                    .insert([{ name, created_by: currentUser.id }])
+                    .select()
+                    .single();
+
+                if (groupErr || !group) {
+                    console.error("Grup oluşturulamadı:", groupErr);
+                    return;
+                }
+
+                // 2. Üyeleri group_members tablosuna ekle (kendisi dahil)
+                const allMembers = Array.from(new Set([currentUser.id, ...memberIds])).map((uid) => ({
+                    group_id: group.id,
+                    user_id: uid,
+                }));
+
+                await supabase.from("group_members").insert(allMembers);
+
+                const groupUser: ChatUser = {
+                    id: group.id,
+                    name: group.name,
+                    username: "@grup",
+                    isGroup: true,
+                };
+
+                addConversation(groupUser, false);
+                setActiveChat(groupUser);
+            },
+
             fetchConversations: async () => {
                 const { currentUser } = get();
                 if (!currentUser) return;
 
-                const { data } = await supabase
+                // --- 1. Kullanıcının Dahil Olduğu Grupları Çek ---
+                const { data: groupMemberships } = await supabase
+                    .from("group_members")
+                    .select("group_id, groups(id, name)")
+                    .eq("user_id", currentUser.id);
+
+                const groupList: ChatUser[] = (groupMemberships || [])
+                    .map((item: any) => {
+                        if (!item.groups) return null;
+                        return {
+                            id: item.groups.id,
+                            name: item.groups.name,
+                            username: "@grup",
+                            isGroup: true,
+                        };
+                    })
+                    .filter(Boolean) as ChatUser[];
+
+                // --- 2. Birebir Konuşulan Kullanıcıları Çek ---
+                const { data: userMsgs } = await supabase
                     .from("messages")
                     .select("sender_id, receiver_id")
+                    .is("group_id", null)
                     .not("receiver_id", "is", null)
                     .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`);
 
-                if (!data || data.length === 0) return;
-
                 const otherUserIds = new Set<string>();
-                data.forEach((m) => {
+                (userMsgs || []).forEach((m) => {
                     if (m.sender_id && m.sender_id !== currentUser.id) otherUserIds.add(m.sender_id);
                     if (m.receiver_id && m.receiver_id !== currentUser.id) otherUserIds.add(m.receiver_id);
                 });
 
+                let userList: ChatUser[] = [];
                 if (otherUserIds.size > 0) {
                     const { data: users } = await supabase
                         .from("user")
@@ -134,30 +196,41 @@ export const useChatStore = create<ChatStore>()(
                         .in("id", Array.from(otherUserIds));
 
                     if (users) {
-                        set((state) => {
-                            const map = new Map<string, ChatUser>();
-                            state.conversations.forEach((u) => map.set(u.id, u));
-                            (users as ChatUser[]).forEach((u) => {
-                                const old = map.get(u.id);
-                                map.set(u.id, { ...u, unreadCount: old?.unreadCount || 0 });
-                            });
-                            return { conversations: Array.from(map.values()) };
-                        });
+                        userList = users.map((u: any) => ({ ...u, isGroup: false }));
                     }
                 }
+
+                // --- 3. Tüm Listeyi Birleştir ---
+                set((state) => {
+                    const map = new Map<string, ChatUser>();
+                    state.conversations.forEach((u) => map.set(u.id, u));
+                    [...groupList, ...userList].forEach((u) => {
+                        const old = map.get(u.id);
+                        map.set(u.id, { ...u, unreadCount: old?.unreadCount || 0 });
+                    });
+                    return { conversations: Array.from(map.values()) };
+                });
             },
 
             fetchMessages: async (targetChatId) => {
-                const { currentUser } = get();
+                const { currentUser, activeChat } = get();
                 if (!targetChatId || !currentUser) return;
 
-                const { data, error } = await supabase
-                    .from("messages")
-                    .select("*")
-                    .or(
-                        `and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetChatId}),and(sender_id.eq.${targetChatId},receiver_id.eq.${currentUser.id})`
-                    )
-                    .order("created_at", { ascending: true });
+                const isGroup = activeChat?.id === targetChatId ? activeChat.isGroup : false;
+
+                let query = supabase.from("messages").select("*");
+
+                if (isGroup) {
+                    query = query.eq("group_id", targetChatId);
+                } else {
+                    query = query
+                        .is("group_id", null)
+                        .or(
+                            `and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetChatId}),and(sender_id.eq.${targetChatId},receiver_id.eq.${currentUser.id})`
+                        );
+                }
+
+                const { data, error } = await query.order("created_at", { ascending: true });
 
                 if (!error && data) {
                     set((state) => ({
@@ -175,12 +248,16 @@ export const useChatStore = create<ChatStore>()(
 
                 addConversation(activeChat, false);
 
+                const isGroup = Boolean(activeChat.isGroup);
                 const tempId = `temp-${Date.now()}-${Math.random()}`;
+
                 const optimisticMsg: Message = {
                     id: tempId,
                     text,
                     sender_id: currentUser.id,
-                    receiver_id: activeChat.id,
+                    receiver_id: isGroup ? null : activeChat.id,
+                    group_id: isGroup ? activeChat.id : null,
+                    sender_name: currentUser.name,
                     created_at: new Date().toISOString(),
                     isOptimistic: true,
                 };
@@ -197,7 +274,9 @@ export const useChatStore = create<ChatStore>()(
                     .insert([{
                         text,
                         sender_id: currentUser.id,
-                        receiver_id: activeChat.id,
+                        receiver_id: isGroup ? null : activeChat.id,
+                        group_id: isGroup ? activeChat.id : null,
+                        sender_name: currentUser.name,
                     }])
                     .select()
                     .single();
@@ -218,11 +297,52 @@ export const useChatStore = create<ChatStore>()(
                 const { currentUser, activeChat, addConversation, conversations } = get();
                 if (!currentUser) return;
 
+                // 1. Grup Mesajı Geldiyse
+                if (msg.group_id) {
+                    const groupId = msg.group_id;
+                    const isChatOpen = activeChat?.id === groupId;
+
+                    const existingGroup = conversations.find((c) => c.id === groupId);
+                    if (!existingGroup) {
+                        supabase
+                            .from("groups")
+                            .select("id, name")
+                            .eq("id", groupId)
+                            .single()
+                            .then(({ data }) => {
+                                if (data) {
+                                    addConversation({
+                                        id: data.id,
+                                        name: data.name,
+                                        username: "@grup",
+                                        isGroup: true,
+                                    }, !isChatOpen);
+                                }
+                            });
+                    } else if (!isChatOpen) {
+                        addConversation(existingGroup, true);
+                    }
+
+                    set((state) => {
+                        const chatMsgs = state.messageCache[groupId] || [];
+                        if (chatMsgs.some((m) => m.id === msg.id)) return state;
+
+                        return {
+                            messageCache: {
+                                ...state.messageCache,
+                                [groupId]: [...chatMsgs, msg],
+                            },
+                        };
+                    });
+                    return;
+                }
+
+                // 2. Birebir Özel Mesaj Geldiyse
                 if (msg.receiver_id === currentUser.id) {
                     const senderId = msg.sender_id;
                     const isChatOpen = activeChat?.id === senderId;
 
-                    const existingUser = conversations.find(c => c.id === senderId);
+                    const existingUser = conversations.find((c) => c.id === senderId);
                     if (!existingUser) {
                         supabase
                             .from("user")
@@ -230,7 +350,7 @@ export const useChatStore = create<ChatStore>()(
                             .eq("id", senderId)
                             .single()
                             .then(({ data }) => {
-                                if (data) addConversation(data as ChatUser, !isChatOpen);
+                                if (data) addConversation({ ...data, isGroup: false } as ChatUser, !isChatOpen);
                             });
                     } else if (!isChatOpen) {
                         addConversation(existingUser, true);
@@ -238,7 +358,7 @@ export const useChatStore = create<ChatStore>()(
 
                     set((state) => {
                         const chatMsgs = state.messageCache[senderId] || [];
-                        if (chatMsgs.some(m => m.id === msg.id)) return state;
+                        if (chatMsgs.some((m) => m.id === msg.id)) return state;
 
                         return {
                             messageCache: {
