@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { supabase } from "../supabaseClient";
+import { supabase } from "../../supabaseClient";
 
 export interface ChatUser {
     id: string;
