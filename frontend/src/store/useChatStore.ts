@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { supabase } from "../../supabaseClient";
+import { supabase } from "../supabaseClient";
 
 export interface ChatUser {
     id: string;
@@ -109,9 +109,7 @@ export const useChatStore = create<ChatStore>()(
                 });
             },
 
-            // Mesajlar silinse bile kayıtlı sohbetleri koruyarak yenilerini ekler
             fetchConversations: async () => {
-                // 114. satırı şu şekilde güncelle:
                 const { currentUser } = get();
                 if (!currentUser) return;
 
@@ -138,9 +136,7 @@ export const useChatStore = create<ChatStore>()(
                     if (users) {
                         set((state) => {
                             const map = new Map<string, ChatUser>();
-                            // 1. Önce mevcut hafızadaki sohbetleri koru
                             state.conversations.forEach((u) => map.set(u.id, u));
-                            // 2. DB'den gelenleri üzerine ekle/güncelle
                             (users as ChatUser[]).forEach((u) => {
                                 const old = map.get(u.id);
                                 map.set(u.id, { ...u, unreadCount: old?.unreadCount || 0 });
@@ -177,7 +173,6 @@ export const useChatStore = create<ChatStore>()(
                 const { activeChat, currentUser, addConversation } = get();
                 if (!currentUser || !activeChat) return;
 
-                // Sohbeti listeye kalıcı olarak ekle
                 addConversation(activeChat, false);
 
                 const tempId = `temp-${Date.now()}-${Math.random()}`;
@@ -297,7 +292,6 @@ export const useChatStore = create<ChatStore>()(
         }),
         {
             name: "chat-storage",
-            // Hem oturum bilgisini hem de bu kullanıcının konuştuğu profilleri sakla
             partialize: (state) => ({ 
                 currentUser: state.currentUser,
                 conversations: state.conversations 

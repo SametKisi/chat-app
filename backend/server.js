@@ -21,7 +21,6 @@ const allowedOrigins = [
     process.env.TRUSTED_ORIGINS
 ].filter(Boolean);
 
-// CORS middleware'i
 app.use(cors({
     origin: (origin, callback) => {
         if (!origin || allowedOrigins.includes(origin) || (origin && origin.endsWith('.vercel.app'))) {
@@ -36,8 +35,9 @@ app.use(cors({
     exposedHeaders: ['set-auth-token']
 }));
 
-// Better-Auth rotaları
-app.all('/api/auth/*splat', toNodeHandler(auth));
+// ⚡ TÜM /api/auth ROTALARINI (sign-up/email dahil) YAKALAYAN REGEX
+app.all(/^\/api\/auth\/.*/, toNodeHandler(auth));
+app.all('/api/auth', toNodeHandler(auth));
 
 app.use(express.json());
 
