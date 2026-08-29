@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import ProfileLogo from "../constant/profilLogo.tsx";
 import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft } from "@phosphor-icons/react";
 import { useChatStore } from "../store/useChatStore.ts";
 import { supabase } from '../../supabaseClient';
@@ -43,7 +42,6 @@ const MessagePage = () => {
                 { event: 'INSERT', schema: 'public', table: 'messages' },
                 (payload) => {
                     const msg = payload.new as any;
-                    // Kendi attığımız mesaj değilse al
                     if (msg.sender_id !== currentUser?.id) {
                         receiveIncomingMessage(msg);
                     }
@@ -75,7 +73,7 @@ const MessagePage = () => {
                 </div>
                 <h2 className="text-xl font-semibold text-gray-200">Sohbet veya Grup Seçin</h2>
                 <p className="text-sm text-gray-400 text-center max-w-sm">
-                    Mesajlaşmaya başlamak için sol menüden bir kişi seçin, grup oluşturun veya arama yapın.
+                    Mesajlaşmaya başlamak için sol menüden bir kişi veya grup seçin.
                 </p>
             </div>
         );
@@ -85,7 +83,7 @@ const MessagePage = () => {
         <div className="flex flex-col h-[100dvh] md:h-full w-full bg-[#0F3040] p-0 md:p-4 items-center justify-center">
             <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden">
                 
-                {/* Başlık Alanı */}
+                {/* Başlık */}
                 <div className="flex items-center gap-2 md:gap-3 pb-3 mb-2 border-b border-[#325E6A]/50 shrink-0">
                     <button 
                         type="button"
@@ -95,8 +93,15 @@ const MessagePage = () => {
                         <ArrowLeft size={20} weight="bold" />
                     </button>
 
-                    <div className="w-9 h-9 md:w-10 md:h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0">
-                        {isGroup ? <UsersThree size={22} weight="bold" /> : <UserIcon size={20} />}
+                    {/* Aktif Sohbet Profil Resmi */}
+                    <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0 overflow-hidden">
+                        {isGroup ? (
+                            <UsersThree size={22} weight="bold" />
+                        ) : activeChat.image ? (
+                            <img src={activeChat.image} alt="Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                            <UserIcon size={20} />
+                        )}
                     </div>
                     <div className="flex flex-col min-w-0">
                         <span className="font-bold text-gray-100 text-sm truncate">
@@ -113,8 +118,8 @@ const MessagePage = () => {
                     {messages.map((msg: any) => {
                         const isMe = msg.sender_id === currentUser?.id;
                         const isDeleted = msg.is_deleted;
-                        // Grupta kimin gönderdiğini belirle
-                        const senderDisplayName = isMe ? "Sen" : (msg.sender_name || msg.sender?.name || activeChat.name);
+                        const senderName = isMe ? "Sen" : (msg.sender_name || msg.sender?.name || activeChat.name);
+                        const senderAvatar = isMe ? currentUser?.image : (msg.sender_image || activeChat.image);
 
                         return (
                             <div
@@ -148,12 +153,18 @@ const MessagePage = () => {
                                 )}
 
                                 <div className={`flex items-start gap-2 md:gap-3 flex-1 min-w-0 ${isMe ? 'flex-row-reverse' : ''}`}>
-                                    <div className="flex-shrink-0 mt-0.5">
-                                        <ProfileLogo />
+                                    {/* Profil Resmi */}
+                                    <div className="w-8 h-8 rounded-full bg-slate-800/40 border border-slate-700 flex items-center justify-center shrink-0 mt-0.5 overflow-hidden">
+                                        {senderAvatar ? (
+                                            <img src={senderAvatar} alt="Sender" className="w-full h-full object-cover" />
+                                        ) : (
+                                            <UserIcon size={16} className="text-gray-800" />
+                                        )}
                                     </div>
+
                                     <div className={`flex flex-col flex-1 min-w-0 ${isMe ? 'items-end text-right' : ''}`}>
                                         <span className="font-bold text-xs md:text-sm truncate text-gray-900">
-                                            {senderDisplayName}
+                                            {senderName}
                                         </span>
 
                                         {isDeleted ? (
@@ -191,7 +202,7 @@ const MessagePage = () => {
                     <div ref={scrollRef}></div>
                 </div>
 
-                {/* Mesaj Gönderme */}
+                {/* Mesaj Yazma Alanı */}
                 <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3 md:px-4 py-1.5 md:py-2 shrink-0">
                     <input
                         onKeyDown={(e) => { if (e.key === 'Enter') { sendMessage(); } }}

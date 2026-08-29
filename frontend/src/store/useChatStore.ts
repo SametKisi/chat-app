@@ -9,6 +9,27 @@ export interface ChatUser {
     unreadCount?: number;
     isGroup?: boolean;
 }
+export interface ChatUser {
+    id: string;
+    name: string;
+    username: string;
+    image?: string | null; // 👈 Eklendi
+    unreadCount?: number;
+    isGroup?: boolean;
+}
+
+export interface Message {
+    id: string;
+    text: string;
+    sender_id: string;
+    receiver_id: string | null;
+    group_id?: string | null;
+    sender_name?: string | null;
+    sender_image?: string | null; // 👈 Eklendi
+    created_at: string;
+    is_deleted?: boolean;
+    isOptimistic?: boolean;
+}
 
 export interface Message {
     id: string;
