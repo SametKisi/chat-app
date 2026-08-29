@@ -102,11 +102,11 @@ export const useChatStore = create<ChatStore>()(
                         return {
                             conversations: state.conversations.map((c) =>
                                 c.id === user.id
-                                    ? { 
-                                        ...c, 
+                                    ? {
+                                        ...c,
                                         unreadCount: markUnread ? (c.unreadCount || 0) + 1 : c.unreadCount,
-                                        isGroup: user.isGroup ?? c.isGroup 
-                                      }
+                                        isGroup: user.isGroup ?? c.isGroup
+                                    }
                                     : c
                             ),
                         };
@@ -118,10 +118,10 @@ export const useChatStore = create<ChatStore>()(
             },
 
             createGroup: async (name: string, memberIds: string[]) => {
-                const { currentUser, addConversation, setActiveChat } = get();
+                const { currentUser, setActiveChat } = get();
                 if (!currentUser) return;
 
-                const groupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                const groupId = `grp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
                 // 1. Gruplar tablosuna ekle
                 const { error: groupErr } = await supabase
@@ -133,7 +133,7 @@ export const useChatStore = create<ChatStore>()(
                     return;
                 }
 
-                // 2. Üyeleri group_members tablosuna ekle
+                // 2. Üyeleri ekle (kendisi dahil)
                 const allMembers = Array.from(new Set([currentUser.id, ...memberIds])).map((uid) => ({
                     group_id: groupId,
                     user_id: uid,
@@ -146,11 +146,14 @@ export const useChatStore = create<ChatStore>()(
                     name: name,
                     username: "@grup",
                     isGroup: true,
+                    unreadCount: 0
                 };
 
-                // State'e anında bas
-                addConversation(groupUser, false);
-                setActiveChat(groupUser);
+                // State'e anında ekle ve aktif yap
+                set((state) => ({
+                    conversations: [groupUser, ...state.conversations.filter(c => c.id !== groupId)],
+                    activeChat: groupUser
+                }));
             },
 
             fetchConversations: async () => {
@@ -423,9 +426,9 @@ export const useChatStore = create<ChatStore>()(
         }),
         {
             name: "chat-storage",
-            partialize: (state) => ({ 
+            partialize: (state) => ({
                 currentUser: state.currentUser,
-                conversations: state.conversations 
+                conversations: state.conversations
             }),
         }
     )

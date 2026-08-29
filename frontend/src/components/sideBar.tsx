@@ -6,6 +6,7 @@ import { useSearchUsers } from "../hooks/useSearchUsers";
 import { useChatStore, type ChatUser } from "../store/useChatStore";
 import { useSession } from "../lib/authClient";
 import { CreateGroupModal } from "./CreateGroupModal";
+import { supabase } from "../../supabaseClient";
 
 const SideBar = () => {
     const navigate = useNavigate();
@@ -41,6 +42,21 @@ const SideBar = () => {
     useEffect(() => {
         if (currentUser) {
             fetchConversations();
+
+            // Realtime: Yeni grup veya üyelik geldiğinde sol listeyi anında yenile
+            const groupChannel = supabase
+                .channel('realtime-group-sync')
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, () => {
+                    fetchConversations();
+                })
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'groups' }, () => {
+                    fetchConversations();
+                })
+                .subscribe();
+
+            return () => {
+                supabase.removeChannel(groupChannel);
+            };
         }
     }, [currentUser, fetchConversations]);
 
@@ -61,13 +77,16 @@ const SideBar = () => {
         <>
             <CreateGroupModal
                 isOpen={isGroupModalOpen}
-                onClose={() => setIsGroupModalOpen(false)}
+                onClose={() => {
+                    setIsGroupModalOpen(false);
+                    fetchConversations();
+                }}
             />
 
             <div className={`w-full md:w-80 flex-col h-[100dvh] md:h-full bg-[#202c33] p-3 select-none shrink-0 border-r border-[#2a3942] ${
                 activeChat ? "hidden md:flex" : "flex"
             }`}>
-                {/* Üst Kısım: Arama & Grup Oluştur Butonu */}
+                {/* Arama & Grup Ekle */}
                 <div className="flex items-center gap-2 shrink-0 mb-1">
                     <div className="flex-1 flex flex-row items-center bg-[#111b21] px-3 py-2 rounded-xl gap-2 border border-[#2a3942] focus-within:border-[#00a884] transition">
                         <MagnifyingGlassIcon className="size-5 text-gray-400 shrink-0" />
@@ -78,7 +97,6 @@ const SideBar = () => {
                             className="w-full bg-transparent text-gray-200 text-sm outline-none placeholder:text-gray-500"
                         />
                     </div>
-                    {/* Grup Aç Butonu */}
                     <button
                         onClick={() => setIsGroupModalOpen(true)}
                         title="Yeni Grup Oluştur"
@@ -88,7 +106,7 @@ const SideBar = () => {
                     </button>
                 </div>
 
-                {/* Sohbetler Listesi */}
+                {/* Liste */}
                 <div className="flex-1 overflow-y-auto my-3 flex flex-col gap-1.5 pr-1">
                     {searchTerm.trim() !== "" ? (
                         <div className="flex flex-col gap-1">
@@ -153,7 +171,7 @@ const SideBar = () => {
                                                 <div className="flex flex-col min-w-0">
                                                     <span className="text-sm font-medium truncate">{user.name}</span>
                                                     <span className={`text-xs truncate ${hasUnread ? "text-emerald-300 font-semibold" : "text-[#00a884]"}`}>
-                                                        {isGroupItem ? "Grup" : user.username}
+                                                        {isGroupItem ? "Grup Sohbeti" : user.username}
                                                     </span>
                                                 </div>
                                             </div>
@@ -171,7 +189,7 @@ const SideBar = () => {
                     )}
                 </div>
 
-                {/* Çıkış Butonu */}
+                {/* Çıkış */}
                 <div
                     onClick={handleLogout}
                     className="flex text-gray-300 hover:text-red-400 text-sm font-medium items-center p-3 gap-3 cursor-pointer mt-auto rounded-xl hover:bg-red-500/10 transition border border-transparent hover:border-red-500/20 shrink-0"
