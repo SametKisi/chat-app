@@ -34,7 +34,8 @@ const SideBar = () => {
             setCurrentUser({
                 id: u.id,
                 name: u.name,
-                username: u.username || u.name
+                username: u.username || u.name,
+                image: u.image || null
             });
         }
     }, [session, setCurrentUser]);
@@ -119,8 +120,12 @@ const SideBar = () => {
                                     onClick={() => handleSelectUser({ ...user, isGroup: false })}
                                     className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#2a3942] cursor-pointer transition text-gray-200"
                                 >
-                                    <div className="w-10 h-10 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300">
-                                        <UserIcon size={20} />
+                                    <div className="w-10 h-10 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center shrink-0 border border-slate-600 text-gray-300 overflow-hidden">
+                                        {user.image ? (
+                                            <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <UserIcon size={20} />
+                                        )}
                                     </div>
                                     <div className="flex flex-col min-w-0">
                                         <span className="text-sm font-medium truncate">{user.name}</span>
@@ -158,11 +163,13 @@ const SideBar = () => {
                                             }`}
                                         >
                                             <div className="flex items-center gap-3 min-w-0">
-                                                <div className={`w-10 h-10 md:w-9 md:h-9 rounded-full flex items-center justify-center shrink-0 border ${
-                                                    hasUnread ? "bg-[#00a884] text-[#111b21] border-emerald-300" : "bg-slate-700 text-gray-300 border-slate-600"
+                                                <div className={`w-10 h-10 md:w-9 md:h-9 rounded-full flex items-center justify-center shrink-0 border overflow-hidden ${
+                                                    hasUnread ? "border-emerald-300" : "border-slate-600 bg-slate-700 text-gray-300"
                                                 }`}>
                                                     {isGroupItem ? (
-                                                        <UsersThree size={20} weight={hasUnread ? "bold" : "regular"} />
+                                                        <UsersThree size={20} weight={hasUnread ? "bold" : "regular"} className="text-emerald-400" />
+                                                    ) : user.image ? (
+                                                        <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
                                                     ) : (
                                                         <UserIcon size={18} weight={hasUnread ? "bold" : "regular"} />
                                                     )}
@@ -188,12 +195,16 @@ const SideBar = () => {
                     )}
                 </div>
 
-                {/* Alt Kısım: Oturum Açan Profil Kartı & Çıkış */}
+                {/* Alt Kısım: Profil Kartı & Çıkış */}
                 <div className="mt-auto flex flex-col gap-2 pt-2 border-t border-[#2a3942] shrink-0">
                     {currentUser && (
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-[#111b21]/70 border border-[#2a3942]">
-                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0">
-                                <UserIcon size={20} weight="bold" />
+                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0 overflow-hidden">
+                                {currentUser.image ? (
+                                    <img src={currentUser.image} alt={currentUser.name} className="w-full h-full object-cover" />
+                                ) : (
+                                    <UserIcon size={20} weight="bold" />
+                                )}
                             </div>
                             <div className="flex flex-col min-w-0 flex-1">
                                 <span className="text-sm font-bold text-gray-200 truncate">
@@ -206,7 +217,6 @@ const SideBar = () => {
                         </div>
                     )}
 
-                    {/* Çıkış Yap Butonu */}
                     <button
                         type="button"
                         onClick={handleLogout}

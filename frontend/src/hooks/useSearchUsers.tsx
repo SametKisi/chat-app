@@ -14,10 +14,8 @@ export const useSearchUsers = (query: string) => {
 
     useEffect(() => {
         const text = query.trim();
-        // '@' işaretini temizle
         const rawText = text.replace(/^@/, "").trim();
 
-        // Metin boşsa veya sadece tek başına '@' yazılmışsa arama yapma, listeyi sıfırla
         if (!text || rawText.length === 0) {
             setUsers([]);
             setLoading(false);
