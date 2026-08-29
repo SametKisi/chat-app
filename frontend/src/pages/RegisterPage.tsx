@@ -67,7 +67,7 @@ const RegisterPage = () => {
         try {
             let uploadedImageUrl = "";
 
-            // Profil resmi seçilmişse Supabase Storage'a yükle
+            // 1. Profil Fotoğrafını Supabase Storage'a Yükle
             if (imageFile) {
                 const fileExt = imageFile.name.split('.').pop();
                 const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
@@ -75,9 +75,14 @@ const RegisterPage = () => {
 
                 const { error: uploadError } = await supabase.storage
                     .from('avatars')
-                    .upload(filePath, imageFile);
+                    .upload(filePath, imageFile, {
+                        cacheControl: '3600',
+                        upsert: true
+                    });
 
-                if (!uploadError) {
+                if (uploadError) {
+                    console.error("Fotoğraf yükleme hatası:", uploadError);
+                } else {
                     const { data: publicUrlData } = supabase.storage
                         .from('avatars')
                         .getPublicUrl(filePath);
@@ -85,22 +90,30 @@ const RegisterPage = () => {
                 }
             }
 
-            // Kayıt isteği
+            // 2. Better-Auth ile Kullanıcıyı Oluştur
             const res = await signUp.email({
                 email: formData.email,
                 password: formData.password,
                 name: formData.fullName,
                 username: formData.username,
-                image: uploadedImageUrl || undefined,
+                image: uploadedImageUrl || null,
             } as any);
 
-            setLoading(false);
-
             if (res.error) {
+                setLoading(false);
                 setError(res.error.message || "Kayıt sırasında bir hata oluştu.");
                 return;
             }
 
+            // 3. user tablosunda image sütununu garanti güncelle
+            if (uploadedImageUrl) {
+                await supabase
+                    .from('user')
+                    .update({ image: uploadedImageUrl })
+                    .eq('email', formData.email);
+            }
+
+            setLoading(false);
             navigate("/Login");
         } catch (err: any) {
             setLoading(false);
@@ -119,19 +132,19 @@ const RegisterPage = () => {
                     </div>
                 )}
 
-                {/* Profil Fotoğrafı Yükleme Alanı */}
+                {/* Profil Fotoğrafı Alanı */}
                 <div className="flex flex-col items-center gap-2">
                     <div 
                         onClick={() => fileInputRef.current?.click()}
-                        className="relative w-20 h-20 rounded-full bg-slate-800 border-2 border-dashed border-slate-600 hover:border-blue-500 cursor-pointer flex items-center justify-center overflow-hidden transition group"
+                        className="relative w-24 h-24 rounded-full bg-slate-800 border-2 border-dashed border-slate-600 hover:border-blue-500 cursor-pointer flex items-center justify-center overflow-hidden transition group"
                     >
                         {previewUrl ? (
                             <img src={previewUrl} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                            <User size={36} className="text-slate-400 group-hover:text-blue-400" />
+                            <User size={40} className="text-slate-400 group-hover:text-blue-400" />
                         )}
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                            <Camera size={22} className="text-white" />
+                            <Camera size={24} className="text-white" />
                         </div>
                     </div>
                     <input 
@@ -141,7 +154,7 @@ const RegisterPage = () => {
                         onChange={handleImageChange} 
                         className="hidden" 
                     />
-                    <span className="text-xs text-slate-400">Profil Fotoğrafı Seç (İsteğe Bağlı)</span>
+                    <span className="text-xs text-slate-400">Profil Fotoğrafı Ekle</span>
                 </div>
 
                 <form onSubmit={handleSubmit} className="flex flex-col w-full gap-4">
