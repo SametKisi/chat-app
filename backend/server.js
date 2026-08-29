@@ -1,48 +1,20 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import nodemailer from 'nodemailer';
 import { toNodeHandler } from 'better-auth/node';
 import { auth } from './lib/auth.js';
 import { supabase } from './supabaseClient.js';
 import meRoutes from './routes/me.js';
+import { sendEmailNotification } from './utils/mailer.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// 1. SMTP Şifresini Temizle (Boşlukları sil)
-const smtpEmail = (process.env.SMTP_EMAIL || '').trim();
-const smtpPassClean = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
-
-console.log('--- 🔍 SMTP YAPILANDIRMA KONTROLÜ ---');
-console.log(`[SMTP CONFIG] Email: ${smtpEmail ? smtpEmail : '❌ TANIMLI DEĞİL'}`);
-console.log(`[SMTP CONFIG] Pass Uzunluğu: ${smtpPassClean ? smtpPassClean.length + ' karakter' : '❌ TANIMLI DEĞİL'}`);
-console.log('------------------------------------');
-
-// 2. Nodemailer Yapılandırması (Bulut sunucuları için Port 587 + STARTTLS)
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // TLS
-    auth: {
-        user: smtpEmail,
-        pass: smtpPassClean,
-    },
-    tls: {
-        rejectUnauthorized: false
-    }
-});
-
-// Sunucu başlarken SMTP bağlantısını doğrula
-transporter.verify((error, success) => {
-    if (error) {
-        console.error('❌ [SMTP BAĞLANTI HATASI] Gmail SMTP doğrulaması başarısız:', error.message);
-    } else {
-        console.log('✅ [SMTP BAĞLANTI BAŞARILI] Gmail SMTP sunucusuna bağlanıldı ve hazır!');
-    }
-});
+console.log('--- 🔍 RESEND YAPILANDIRMA KONTROLÜ ---');
+console.log(`[RESEND CONFIG] API Key: ${process.env.RESEND_API_KEY ? '✅ TANIMLI' : '❌ TANIMLI DEĞİL'}`);
+console.log('----------------------------------------');
 
 // CORS Yapılandırması
 app.use(cors({
@@ -84,9 +56,8 @@ app.post('/api/send-message-notification', async (req, res) => {
             return res.status(400).json({ error: 'Eksik parametre (receiverId veya senderName yok)' });
         }
 
-        console.log(`🔍 [1/3] Supabase 'user' tablosunda aranıyor: ID = "${receiverId}"`);
+        console.log(`🔍 [1/2] Supabase 'user' tablosunda aranıyor: ID = "${receiverId}"`);
 
-        // Supabase'den alıcının e-posta adresini çek
         const { data: user, error: userError } = await supabase
             .from('user')
             .select('id, name, username, email')
@@ -103,51 +74,18 @@ app.post('/api/send-message-notification', async (req, res) => {
             return res.status(404).json({ error: 'Alıcı bulundu ancak e-posta adresi boş.' });
         }
 
-        console.log(`🎯 [2/3] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
+        console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
+        console.log(`🚀 Resend ile e-posta fırlatılıyor -> Kime: ${user.email}`);
 
-        const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-samet12kisi-9457.vercel.app';
+        const mailInfo = await sendEmailNotification(user.email, senderName, messageText);
 
-        console.log(`🚀 [3/3] Gmail SMTP üzerinden e-posta fırlatılıyor -> Kime: ${user.email}`);
-
-        const mailOptions = {
-            from: `"SaChat Bildirim" <${smtpEmail}>`,
-            to: user.email,
-            subject: `💬 ${senderName} size yeni bir mesaj gönderdi!`,
-            html: `
-                <div style="font-family: Arial, sans-serif; background-color: #0F3040; padding: 25px; border-radius: 12px; color: #ffffff; max-width: 500px; margin: auto;">
-                    <h2 style="color: #00a884; margin-top: 0;">Yeni Mesajınız Var!</h2>
-                    <p style="font-size: 15px; color: #e2e8f0;">
-                        <strong>${senderName}</strong> size bir mesaj gönderdi:
-                    </p>
-                    <div style="background-color: #111b21; padding: 12px; border-radius: 8px; border-left: 4px solid #00a884; margin: 15px 0; color: #cbd5e1; font-style: italic;">
-                        "${messageText.length > 100 ? messageText.substring(0, 100) + '...' : messageText}"
-                    </div>
-                    <div style="text-align: center; margin-top: 25px;">
-                        <a href="${siteUrl}" style="background-color: #00a884; color: #111b21; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block;">
-                            Mesajı Gör ve Yanıtla
-                        </a>
-                    </div>
-                    <hr style="border: 0; border-top: 1px solid #325E6A; margin-top: 25px;" />
-                    <p style="font-size: 11px; color: #94a3b8; text-align: center;">
-                        Bu e-posta SaChat bildirim sistemi tarafından otomatik olarak gönderilmiştir.
-                    </p>
-                </div>
-            `,
-        };
-
-        const mailInfo = await transporter.sendMail(mailOptions);
-
-        console.log('🎉 [BAŞARILI] E-posta alıcıya ulaştı!');
-        console.log(`[INFO] MessageID: ${mailInfo.messageId}`);
-        console.log(`[INFO] Response: ${mailInfo.response}`);
         console.log(`[INFO] Toplam Süre: ${Date.now() - startTime}ms`);
         console.log('================================================================\n');
 
         return res.status(200).json({
             success: true,
             to: user.email,
-            messageId: mailInfo.messageId,
-            response: mailInfo.response
+            id: mailInfo?.id
         });
 
     } catch (error) {
@@ -155,8 +93,7 @@ app.post('/api/send-message-notification', async (req, res) => {
         console.error(error);
         console.log('================================================================\n');
         return res.status(500).json({
-            error: error.message,
-            stack: error.stack
+            error: error.message
         });
     }
 });
