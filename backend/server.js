@@ -76,31 +76,38 @@ app.post('/api/send-message-notification', async (req, res) => {
         }
 
         console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
-        console.log(`🚀 Resend ile e-posta fırlatılıyor -> Kime: ${user.email}`);
 
-        const mailInfo = await sendEmailNotification(user.email, senderName, messageText);
+        // 📧 Mail gönderimi artık push'u bloklamıyor
+        let mailInfo = null;
+        try {
+            console.log(`🚀 Resend ile e-posta fırlatılıyor -> Kime: ${user.email}`);
+            mailInfo = await sendEmailNotification(user.email, senderName, messageText);
+        } catch (mailErr) {
+            console.error('⚠️ [MAIL HATASI - devam ediliyor]:', mailErr.message);
+        }
 
-        // 🔔 Push bildirimi de gönder (hata olsa bile mail akışını bozmasın)
-        sendPushToUser(receiverId, senderName, messageText, '/').catch((err) => {
-            console.error('⚠️ [PUSH HATASI]:', err.message);
-        });
+        // 🔔 Push bildirimi her durumda deneniyor
+        try {
+            await sendPushToUser(receiverId, senderName, messageText, '/');
+        } catch (pushErr) {
+            console.error('⚠️ [PUSH HATASI]:', pushErr.message);
+        }
 
         console.log(`[INFO] Toplam Süre: ${Date.now() - startTime}ms`);
         console.log('================================================================\n');
 
         return res.status(200).json({
             success: true,
+            mailSent: !!mailInfo,
             to: user.email,
-            id: mailInfo?.id
+            id: mailInfo?.id ?? null
         });
 
     } catch (error) {
-        console.error('🔥 [KRİTİK HATA] E-posta gönderim işlemi çöktü:');
+        console.error('🔥 [KRİTİK HATA] Route çöktü:');
         console.error(error);
         console.log('================================================================\n');
-        return res.status(500).json({
-            error: error.message
-        });
+        return res.status(500).json({ error: error.message });
     }
 });
 app.use("/api", pushRouter);
