@@ -22,6 +22,24 @@ async function getMessagingIfSupported() {
   return messagingInstance;
 }
 
+// Service worker'ın "activated" durumuna geçmesini bekler.
+// register() promise'i dosya kaydedilir kaydedilmez resolve olur,
+// worker henüz installing/waiting aşamasında olabilir — bu yüzden
+// getToken() öncesi bunu beklemek gerekiyor, aksi halde
+// "AbortError: no active Service Worker" hatası alınıyor.
+function waitForActivation(registration: ServiceWorkerRegistration): Promise<void> {
+  if (registration.active) return Promise.resolve();
+
+  const worker = registration.installing || registration.waiting;
+  if (!worker) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    worker.addEventListener("statechange", () => {
+      if (worker.state === "activated") resolve();
+    });
+  });
+}
+
 export async function registerPushNotifications(userId: string, backendUrl: string) {
   const messaging = await getMessagingIfSupported();
   if (!messaging) {
@@ -36,6 +54,7 @@ export async function registerPushNotifications(userId: string, backendUrl: stri
   }
 
   const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+  await waitForActivation(registration);
 
   const token = await getToken(messaging, {
     vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
