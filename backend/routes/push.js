@@ -12,9 +12,8 @@ router.post("/push-subscribe", async (req, res) => {
     }
 
     const { error } = await supabase
-        .from("push_tokens")
-        .upsert({ user_id: userId, token, platform: platform || "web" }, { onConflict: "token" });
-
+    .from("push_tokens")
+    .upsert({ user_id: userId, token, platform: platform || "web" }, { onConflict: "user_id,token" });
     if (error) {
         console.error("[push-subscribe] Hata:", error.message);
         return res.status(500).json({ hata: "Sunucu hatası." });
