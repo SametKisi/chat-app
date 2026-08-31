@@ -37,7 +37,12 @@ export async function sendPushToUser(userId, title, body, url = "/") {
         .select("token")
         .eq("user_id", userId);
 
-    if (error || !tokens?.length) return;
+    if (error || !tokens?.length) {
+        console.log(`🔔 [PUSH] userId=${userId} için token bulunamadı`);
+        return;
+    }
+
+    console.log(`🔔 [PUSH] ${tokens.length} token'a gönderiliyor -> userId=${userId}`);
 
     const messages = tokens.map((t) => ({
         token: t.token,
@@ -48,8 +53,12 @@ export async function sendPushToUser(userId, title, body, url = "/") {
 
     const results = await Promise.allSettled(messages.map((m) => messaging.send(m)));
 
+    const success = results.filter((r) => r.status === "fulfilled").length;
+    console.log(`🔔 [PUSH SONUÇ] ${success}/${results.length} başarılı`);
+
     results.forEach((r, i) => {
         if (r.status === "rejected") {
+            console.error(`⚠️ [PUSH HATASI] ${messages[i].token.slice(0, 20)}... -> ${r.reason?.message}`);
             const code = r.reason?.errorInfo?.code;
             if (code === "messaging/registration-token-not-registered") {
                 supabase.from("push_tokens").delete().eq("token", messages[i].token).then();
@@ -57,5 +66,4 @@ export async function sendPushToUser(userId, title, body, url = "/") {
         }
     });
 }
-
 export default router;
