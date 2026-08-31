@@ -1,14 +1,40 @@
-import { Resend } from "resend";
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+dotenv.config();
+
+const gmailUser = (process.env.GMAIL_USER || process.env.SMTP_EMAIL || '').trim();
+const gmailPassClean = (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '').replace(/\s+/g, '');
+
+export const transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // TLS
+    auth: {
+        user: gmailUser,
+        pass: gmailPassClean,
+    },
+    tls: {
+        rejectUnauthorized: false,
+    },
+});
+
+// SMTP Bağlantı Doğrulaması
+transporter.verify((error) => {
+    if (error) {
+        console.error('❌ [SMTP BAĞLANTI HATASI] Gmail SMTP doğrulaması başarısız:', error.message);
+    } else {
+        console.log('✅ [SMTP BAĞLANTI BAŞARILI] Gmail SMTP sunucusuna bağlanıldı ve hazır!');
+    }
+});
 
 export const sendEmailNotification = async (toEmail, senderName, messageText) => {
-    const siteUrl = process.env.FRONTEND_URL || "https://chat-app-samet12kisi-9457.vercel.app";
+    const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-samet12kisi-9457.vercel.app';
 
-    console.log(`📧 Resend ile mail gönderiliyor -> ${toEmail}`);
+    console.log(`📧 Gmail SMTP ile mail gönderiliyor -> ${toEmail}`);
 
-    const { data, error } = await resend.emails.send({
-        from: "SaChat <onboarding@resend.dev>",
+    const info = await transporter.sendMail({
+        from: `"SaChat" <${gmailUser}>`,
         to: toEmail,
         subject: `💬 ${senderName} size yeni bir mesaj gönderdi!`,
         html: `
@@ -18,7 +44,7 @@ export const sendEmailNotification = async (toEmail, senderName, messageText) =>
                     <strong>${senderName}</strong> size bir mesaj gönderdi:
                 </p>
                 <div style="background-color: #111b21; padding: 12px; border-radius: 8px; border-left: 4px solid #00a884; margin: 15px 0; color: #cbd5e1; font-style: italic;">
-                    "${messageText.length > 100 ? messageText.substring(0, 100) + "..." : messageText}"
+                    "${messageText.length > 100 ? messageText.substring(0, 100) + '...' : messageText}"
                 </div>
                 <div style="text-align: center; margin-top: 25px;">
                     <a href="${siteUrl}" style="background-color: #00a884; color: #111b21; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 8px; display: inline-block;">
@@ -33,11 +59,6 @@ export const sendEmailNotification = async (toEmail, senderName, messageText) =>
         `,
     });
 
-    if (error) {
-        console.error("❌ [RESEND HATASI]:", error);
-        throw new Error(error.message || "Resend mail gönderilemedi");
-    }
-
-    console.log("✅ [BAŞARILI] Mail gönderildi, id:", data?.id);
-    return data;
+    console.log('✅ [BAŞARILI] Mail gönderildi, messageId:', info.messageId);
+    return info;
 };

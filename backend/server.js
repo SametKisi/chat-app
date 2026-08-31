@@ -6,16 +6,20 @@ import { auth } from './lib/auth.js';
 import { supabase } from './supabaseClient.js';
 import meRoutes from './routes/me.js';
 import { sendEmailNotification } from './utils/mailer.js';
-import pushRouter, { sendPushToUser } from "./routes/push.js";
+import pushRouter, { sendPushToUser } from './routes/push.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-console.log('--- 🔍 RESEND YAPILANDIRMA KONTROLÜ ---');
-console.log(`[RESEND CONFIG] API Key: ${process.env.RESEND_API_KEY ? '✅ TANIMLI' : '❌ TANIMLI DEĞİL'}`);
-console.log('----------------------------------------');
+const gmailUser = (process.env.GMAIL_USER || process.env.SMTP_EMAIL || '').trim();
+const gmailPassClean = (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '').replace(/\s+/g, '');
+
+console.log('--- 🔍 NODEMAILER YAPILANDIRMA KONTROLÜ ---');
+console.log(`[NODEMAILER] Email: ${gmailUser ? '✅ TANIMLI (' + gmailUser + ')' : '❌ TANIMLI DEĞİL'}`);
+console.log(`[NODEMAILER] Pass: ${gmailPassClean ? '✅ TANIMLI (' + gmailPassClean.length + ' hane)' : '❌ TANIMLI DEĞİL'}`);
+console.log('-------------------------------------------');
 
 // CORS Yapılandırması
 app.use(cors({
@@ -42,6 +46,9 @@ app.use((req, res, next) => {
 
 // Korumalı Kullanıcı Rotaları
 app.use('/api', meRoutes);
+
+// Push Bildirim Rotaları
+app.use('/api', pushRouter);
 
 // ✉️ E-POSTA + PUSH BİLDİRİM ROTASI
 app.post('/api/send-message-notification', async (req, res) => {
@@ -77,18 +84,19 @@ app.post('/api/send-message-notification', async (req, res) => {
 
         console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
 
-        // 📧 Mail gönderimi artık push'u bloklamıyor
+        // 📧 1. Nodemailer ile E-posta Gönderimi
         let mailInfo = null;
         try {
-            console.log(`🚀 Resend ile e-posta fırlatılıyor -> Kime: ${user.email}`);
             mailInfo = await sendEmailNotification(user.email, senderName, messageText);
         } catch (mailErr) {
-            console.error('⚠️ [MAIL HATASI - devam ediliyor]:', mailErr.message);
+            console.error('⚠️ [NODEMAILER HATASI]:', mailErr.message);
         }
 
-        // 🔔 Push bildirimi her durumda deneniyor
+        // 🔔 2. Web Push Bildirimi
         try {
-            await sendPushToUser(receiverId, senderName, messageText, '/');
+            if (typeof sendPushToUser === 'function') {
+                await sendPushToUser(receiverId, senderName, messageText, '/');
+            }
         } catch (pushErr) {
             console.error('⚠️ [PUSH HATASI]:', pushErr.message);
         }
@@ -100,7 +108,7 @@ app.post('/api/send-message-notification', async (req, res) => {
             success: true,
             mailSent: !!mailInfo,
             to: user.email,
-            id: mailInfo?.id ?? null
+            messageId: mailInfo?.messageId ?? null
         });
 
     } catch (error) {
@@ -110,7 +118,7 @@ app.post('/api/send-message-notification', async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
-app.use("/api", pushRouter);
+
 // Mesaj Rotaları
 app.get('/api/messages', async (req, res) => {
     try {
