@@ -6,6 +6,7 @@ import { auth } from './lib/auth.js';
 import { supabase } from './supabaseClient.js';
 import meRoutes from './routes/me.js';
 import { sendEmailNotification } from './utils/mailer.js';
+import pushRouter, { sendPushToUser } from "./routes/push.js";
 
 dotenv.config();
 
@@ -42,7 +43,7 @@ app.use((req, res, next) => {
 // Korumalı Kullanıcı Rotaları
 app.use('/api', meRoutes);
 
-// ✉️ E-POSTA BİLDİRİM ROTASI
+// ✉️ E-POSTA + PUSH BİLDİRİM ROTASI
 app.post('/api/send-message-notification', async (req, res) => {
     const startTime = Date.now();
     console.log('\n================== 📬 BİLDİRİM İSTEĞİ BAŞLADI ==================');
@@ -79,6 +80,11 @@ app.post('/api/send-message-notification', async (req, res) => {
 
         const mailInfo = await sendEmailNotification(user.email, senderName, messageText);
 
+        // 🔔 Push bildirimi de gönder (hata olsa bile mail akışını bozmasın)
+        sendPushToUser(receiverId, senderName, messageText, '/').catch((err) => {
+            console.error('⚠️ [PUSH HATASI]:', err.message);
+        });
+
         console.log(`[INFO] Toplam Süre: ${Date.now() - startTime}ms`);
         console.log('================================================================\n');
 
@@ -97,7 +103,7 @@ app.post('/api/send-message-notification', async (req, res) => {
         });
     }
 });
-
+app.use("/api", pushRouter);
 // Mesaj Rotaları
 app.get('/api/messages', async (req, res) => {
     try {
