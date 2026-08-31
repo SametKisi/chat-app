@@ -3,38 +3,43 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const gmailUser = (process.env.GMAIL_USER || process.env.SMTP_EMAIL || '').trim();
-const gmailPassClean = (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '').replace(/\s+/g, '');
+const userEmail = (process.env.GMAIL_USER || process.env.SMTP_EMAIL || '').trim();
+const appPassword = (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '').replace(/\s+/g, '');
 
 export const transporter = nodemailer.createTransport({
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // TLS
+    port: 465,
+    secure: true, // SSL
     auth: {
-        user: gmailUser,
-        pass: gmailPassClean,
+        user: userEmail,
+        pass: appPassword,
     },
+    // Render/Bulut sunucularında IPv6 takılmasını engelleyen kritik ayarlar:
+    family: 4,               // Kesinlikle IPv4 kullan
+    connectionTimeout: 10000, // 10 saniye bağlantı zaman aşımı
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
     tls: {
-        rejectUnauthorized: false,
-    },
+        rejectUnauthorized: false
+    }
 });
 
-// SMTP Bağlantı Doğrulaması
+// Başlangıç testi
 transporter.verify((error) => {
     if (error) {
-        console.error('❌ [SMTP BAĞLANTI HATASI] Gmail SMTP doğrulaması başarısız:', error.message);
+        console.error('❌ [GMAIL SMTP HATASI]:', error.message);
     } else {
-        console.log('✅ [SMTP BAĞLANTI BAŞARILI] Gmail SMTP sunucusuna bağlanıldı ve hazır!');
+        console.log('✅ [GMAIL SMTP HAZIR] Gmail sunucusuna başarıyla bağlanıldı.');
     }
 });
 
 export const sendEmailNotification = async (toEmail, senderName, messageText) => {
     const siteUrl = process.env.FRONTEND_URL || 'https://chat-app-samet12kisi-9457.vercel.app';
 
-    console.log(`📧 Gmail SMTP ile mail gönderiliyor -> ${toEmail}`);
+    console.log(`📧 [NODEMAILER] Gmail ile gönderiliyor -> ${toEmail}`);
 
-    const info = await transporter.sendMail({
-        from: `"SaChat" <${gmailUser}>`,
+    const mailOptions = {
+        from: `"SaChat" <${userEmail}>`,
         to: toEmail,
         subject: `💬 ${senderName} size yeni bir mesaj gönderdi!`,
         html: `
@@ -57,8 +62,9 @@ export const sendEmailNotification = async (toEmail, senderName, messageText) =>
                 </p>
             </div>
         `,
-    });
+    };
 
-    console.log('✅ [BAŞARILI] Mail gönderildi, messageId:', info.messageId);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ [BAŞARILI] Nodemailer maili teslim etti. ID:', info.messageId);
     return info;
 };
