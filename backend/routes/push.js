@@ -1,6 +1,7 @@
 import express from "express";
-import admin from "../lib/firebaseAdmin.js";
+import { messaging } from "../lib/firebaseAdmin.js";
 import { supabase } from "../supabaseClient.js";
+
 
 const router = express.Router();
 
@@ -45,7 +46,7 @@ export async function sendPushToUser(userId, title, body, url = "/") {
         webpush: { fcmOptions: { link: url } },
     }));
 
-    const results = await Promise.allSettled(messages.map((m) => admin.messaging().send(m)));
+    const results = await Promise.allSettled(messages.map((m) => messaging.send(m)));
 
     results.forEach((r, i) => {
         if (r.status === "rejected") {
