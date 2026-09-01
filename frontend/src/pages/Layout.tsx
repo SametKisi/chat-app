@@ -1,9 +1,7 @@
 import { Outlet } from "react-router-dom";
 import Sidebar from "../components/sideBar";
-import { usePushRegistration } from "../hooks/usePushRegistration";
 
 const Layout = () => {
-    usePushRegistration();
     return (
         <div className="flex h-screen w-screen bg-[#111b21] overflow-hidden">
             <Sidebar />
