@@ -10,6 +10,14 @@ export interface ChatUser {
     image?: string | null;
     unreadCount?: number;
     isGroup?: boolean;
+    created_by?: string | null;
+}
+
+export interface GroupMember {
+    id: string;
+    name: string;
+    username: string;
+    image?: string | null;
 }
 
 export interface Message {
@@ -30,6 +38,7 @@ interface ChatStore {
     activeChat: ChatUser | null;
     conversations: ChatUser[];
     messageCache: Record<string, Message[]>;
+    groupMembers: Record<string, GroupMember[]>;
     setCurrentUser: (user: ChatUser | null) => void;
     setActiveChat: (user: ChatUser | null) => void;
     addConversation: (user: ChatUser, markUnread?: boolean) => void;
@@ -42,6 +51,11 @@ interface ChatStore {
     handleRemoteDelete: (id: string) => void;
     removeMessageLocally: (id: string) => void;
     createGroup: (name: string, memberIds: string[]) => Promise<void>;
+    fetchGroupMembers: (groupId: string) => Promise<void>;
+    deleteGroup: (groupId: string) => Promise<void>;
+    leaveGroup: (groupId: string) => Promise<void>;
+    handleGroupRemoved: (groupId: string) => void;
+    handleMemberRemoved: (groupId: string, userId: string) => void;
     resetStore: () => void;
 }
 
@@ -71,6 +85,22 @@ function subscribeRealtime(get: () => ChatStore) {
                 get().handleRemoteDelete((payload.old as any).id);
             }
         )
+        .on(
+            "postgres_changes",
+            { event: "DELETE", schema: "public", table: "groups" },
+            (payload) => {
+                const groupId = (payload.old as any).id;
+                get().handleGroupRemoved(groupId);
+            }
+        )
+        .on(
+            "postgres_changes",
+            { event: "DELETE", schema: "public", table: "group_members" },
+            (payload) => {
+                const { group_id, user_id } = payload.old as any;
+                get().handleMemberRemoved(group_id, user_id);
+            }
+        )
         .subscribe();
 }
 
@@ -86,6 +116,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     activeChat: null,
     conversations: [],
     messageCache: {},
+    groupMembers: {},
 
     setCurrentUser: (user) => {
         const prev = get().currentUser;
@@ -97,7 +128,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
 
         unsubscribeRealtime();
-        set({ currentUser: user, activeChat: null, conversations: [], messageCache: {} });
+        set({ currentUser: user, activeChat: null, conversations: [], messageCache: {}, groupMembers: {} });
 
         if (user) {
             get().fetchConversations();
@@ -107,7 +138,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     resetStore: () => {
         unsubscribeRealtime();
-        set({ currentUser: null, activeChat: null, conversations: [], messageCache: {} });
+        set({ currentUser: null, activeChat: null, conversations: [], messageCache: {}, groupMembers: {} });
     },
 
     setActiveChat: (user) => {
@@ -116,6 +147,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             get().clearUnread(user.id);
             if (!get().messageCache[user.id]) {
                 get().fetchMessages(user.id);
+            }
+            if (user.isGroup) {
+                get().fetchGroupMembers(user.id);
             }
         }
     },
@@ -139,6 +173,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                                 ...c,
                                 unreadCount: markUnread ? (c.unreadCount || 0) + 1 : c.unreadCount,
                                 isGroup: user.isGroup ?? c.isGroup,
+                                created_by: user.created_by ?? c.created_by,
                             }
                             : c
                     ),
@@ -181,11 +216,144 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             username: "@grup",
             isGroup: true,
             unreadCount: 0,
+            created_by: currentUser.id,
         };
 
         set((state) => ({
             conversations: [newGroupItem, ...state.conversations.filter((c) => c.id !== groupId)],
             activeChat: newGroupItem,
+        }));
+
+        get().fetchGroupMembers(groupId);
+    },
+
+    fetchGroupMembers: async (groupId) => {
+        const { data: memberRows, error: memErr } = await supabase
+            .from("group_members")
+            .select("user_id")
+            .eq("group_id", groupId);
+
+        if (memErr || !memberRows || memberRows.length === 0) {
+            set((state) => ({ groupMembers: { ...state.groupMembers, [groupId]: [] } }));
+            return;
+        }
+
+        const userIds = Array.from(new Set(memberRows.map((m) => m.user_id)));
+        const { data: users, error: usersErr } = await supabase
+            .from("user")
+            .select("id, name, username, image")
+            .in("id", userIds);
+
+        if (!usersErr && users) {
+            set((state) => ({
+                groupMembers: { ...state.groupMembers, [groupId]: users as GroupMember[] },
+            }));
+        } else if (usersErr) {
+            console.error("Grup üyeleri çekilemedi:", usersErr);
+        }
+    },
+
+    deleteGroup: async (groupId) => {
+        const { currentUser, activeChat, conversations } = get();
+        if (!currentUser) return;
+
+        const group = conversations.find((c) => c.id === groupId);
+        if (!group || group.created_by !== currentUser.id) {
+            alert("Bu grubu sadece grubu oluşturan kişi silebilir.");
+            return;
+        }
+
+        // Önce üyeleri, sonra grubu sil
+        const { error: memErr } = await supabase.from("group_members").delete().eq("group_id", groupId);
+        if (memErr) {
+            console.error("Grup üyeleri silinemedi:", memErr);
+        }
+
+        const { error } = await supabase.from("groups").delete().eq("id", groupId);
+
+        if (error) {
+            console.error("Grup silinemedi:", error);
+            alert("Grup silinemedi: " + error.message);
+            return;
+        }
+
+        set((state) => {
+            const { [groupId]: _removedCache, ...restCache } = state.messageCache;
+            const { [groupId]: _removedMembers, ...restMembers } = state.groupMembers;
+            return {
+                conversations: state.conversations.filter((c) => c.id !== groupId),
+                activeChat: state.activeChat?.id === groupId ? null : state.activeChat,
+                messageCache: restCache,
+                groupMembers: restMembers,
+            };
+        });
+    },
+
+    leaveGroup: async (groupId) => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
+        const { error } = await supabase
+            .from("group_members")
+            .delete()
+            .eq("group_id", groupId)
+            .eq("user_id", currentUser.id);
+
+        if (error) {
+            console.error("Gruptan ayrılamadı:", error);
+            alert("Gruptan ayrılamadı: " + error.message);
+            return;
+        }
+
+        set((state) => {
+            const { [groupId]: _removedCache, ...restCache } = state.messageCache;
+            const { [groupId]: _removedMembers, ...restMembers } = state.groupMembers;
+            return {
+                conversations: state.conversations.filter((c) => c.id !== groupId),
+                activeChat: state.activeChat?.id === groupId ? null : state.activeChat,
+                messageCache: restCache,
+                groupMembers: restMembers,
+            };
+        });
+    },
+
+    handleGroupRemoved: (groupId) => {
+        set((state) => {
+            const { [groupId]: _removedCache, ...restCache } = state.messageCache;
+            const { [groupId]: _removedMembers, ...restMembers } = state.groupMembers;
+            return {
+                conversations: state.conversations.filter((c) => c.id !== groupId),
+                activeChat: state.activeChat?.id === groupId ? null : state.activeChat,
+                messageCache: restCache,
+                groupMembers: restMembers,
+            };
+        });
+    },
+
+    handleMemberRemoved: (groupId, userId) => {
+        const { currentUser } = get();
+
+        if (currentUser && userId === currentUser.id) {
+            // Kendisi başka bir cihazdan gruptan ayrılmış/çıkarılmış
+            set((state) => {
+                const { [groupId]: _removedCache, ...restCache } = state.messageCache;
+                const { [groupId]: _removedMembers, ...restMembers } = state.groupMembers;
+                return {
+                    conversations: state.conversations.filter((c) => c.id !== groupId),
+                    activeChat: state.activeChat?.id === groupId ? null : state.activeChat,
+                    messageCache: restCache,
+                    groupMembers: restMembers,
+                };
+            });
+            return;
+        }
+
+        // Başka bir üye ayrıldı, sadece üye listesinden çıkar
+        set((state) => ({
+            groupMembers: {
+                ...state.groupMembers,
+                [groupId]: (state.groupMembers[groupId] || []).filter((m) => m.id !== userId),
+            },
         }));
     },
 
@@ -204,7 +372,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 const gIds = Array.from(new Set(memberRows.map((m) => m.group_id)));
                 const { data: groupsData } = await supabase
                     .from("groups")
-                    .select("id, name")
+                    .select("id, name, created_by")
                     .in("id", gIds);
 
                 if (groupsData) {
@@ -213,6 +381,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                         name: g.name,
                         username: "@grup",
                         isGroup: true,
+                        created_by: g.created_by,
                     }));
                 }
             }
@@ -251,6 +420,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                         ...u,
                         isGroup: u.isGroup ?? old?.isGroup,
                         unreadCount: old?.unreadCount || 0,
+                        created_by: u.created_by ?? old?.created_by,
                     });
                 });
                 return { conversations: Array.from(map.values()) };
@@ -379,12 +549,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             if (!existingGroup) {
                 supabase
                     .from("groups")
-                    .select("id, name")
+                    .select("id, name, created_by")
                     .eq("id", groupId)
                     .single()
                     .then(({ data }) => {
                         if (data) {
-                            addConversation({ id: data.id, name: data.name, username: "@grup", isGroup: true }, !isChatOpen);
+                            addConversation(
+                                { id: data.id, name: data.name, username: "@grup", isGroup: true, created_by: data.created_by },
+                                !isChatOpen
+                            );
                         }
                     });
             } else if (!isChatOpen) {

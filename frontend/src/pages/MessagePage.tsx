@@ -14,15 +14,22 @@ const MessagePage = () => {
         currentUser, 
         addMessage,
         receiveIncomingMessage,
-        setActiveChat
+        setActiveChat,
+        groupMembers,
+        fetchGroupMembers,
+        deleteGroup,
+        leaveGroup,
     } = useChatStore() as any;
 
     const [newMessage, setNewMessage] = useState("");
+    const [showMembers, setShowMembers] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
 
     const activeKey = activeChat ? activeChat.id : "";
     const messages = activeKey ? messageCache[activeKey] || [] : [];
     const isGroup = Boolean(activeChat?.isGroup);
+    const isGroupOwner = isGroup && activeChat?.created_by === currentUser?.id;
+    const members = activeChat ? groupMembers[activeChat.id] || [] : [];
 
     const sendMessage = () => {
         if (newMessage.trim() === "" || !activeChat) return;
@@ -30,10 +37,27 @@ const MessagePage = () => {
         setNewMessage("");
     };
 
+    const handleGroupAction = () => {
+        if (!activeChat) return;
+        if (isGroupOwner) {
+            if (window.confirm(`"${activeChat.name}" grubunu silmek istediğine emin misin? Bu işlem herkesi gruptan çıkarır.`)) {
+                deleteGroup(activeChat.id);
+            }
+        } else {
+            if (window.confirm(`"${activeChat.name}" grubundan ayrılmak istediğine emin misin?`)) {
+                leaveGroup(activeChat.id);
+            }
+        }
+    };
+
     useEffect(() => {
         if (activeChat && !messageCache[activeChat.id]) {
             fetchMessages(activeChat.id);
         }
+        if (activeChat?.isGroup) {
+            fetchGroupMembers(activeChat.id);
+        }
+        setShowMembers(false);
 
         const channel = supabase
             .channel(`realtime-chat-${activeKey}`)
@@ -59,7 +83,7 @@ const MessagePage = () => {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [activeChat, currentUser, fetchMessages, receiveIncomingMessage, handleRemoteDelete, activeKey, messageCache]);
+    }, [activeChat, currentUser, fetchMessages, receiveIncomingMessage, handleRemoteDelete, activeKey, messageCache, fetchGroupMembers]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -110,7 +134,58 @@ const MessagePage = () => {
                             {isGroup ? "Grup Sohbeti" : activeChat.username}
                         </span>
                     </div>
+
+                    {isGroup && (
+                        <div className="flex items-center gap-2 shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => setShowMembers((s) => !s)}
+                                className="text-[11px] md:text-xs text-gray-200 bg-[#111b21]/70 hover:bg-[#111b21] px-2 md:px-2.5 py-1.5 rounded-lg transition whitespace-nowrap"
+                            >
+                                Üyeler ({members.length})
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleGroupAction}
+                                className="text-[11px] md:text-xs text-red-300 bg-red-900/30 hover:bg-red-900/50 px-2 md:px-2.5 py-1.5 rounded-lg transition whitespace-nowrap"
+                            >
+                                {isGroupOwner ? "Grubu Sil" : "Ayrıl"}
+                            </button>
+                        </div>
+                    )}
                 </div>
+
+                {/* Grup Üyeleri Paneli */}
+                {isGroup && showMembers && (
+                    <div className="shrink-0 mb-2 p-2.5 rounded-xl bg-[#111b21]/60 border border-[#325E6A]/40">
+                        <p className="text-xs text-gray-400 mb-1.5">Grup üyeleri</p>
+                        <div className="flex flex-col gap-1.5 max-h-40 overflow-y-auto">
+                            {members.length === 0 && (
+                                <span className="text-xs text-gray-500">Üye bulunamadı.</span>
+                            )}
+                            {members.map((m: any) => (
+                                <div key={m.id} className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
+                                        {m.image ? (
+                                            <img src={m.image} alt={m.name} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <UserIcon size={12} className="text-gray-300" />
+                                        )}
+                                    </div>
+                                    <span className="text-xs text-gray-200 truncate">
+                                        {m.name}
+                                        {m.id === activeChat.created_by && (
+                                            <span className="text-emerald-400"> (kurucu)</span>
+                                        )}
+                                        {m.id === currentUser?.id && (
+                                            <span className="text-gray-500"> (sen)</span>
+                                        )}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 {/* Mesaj Listesi */}
                 <div className="flex flex-col gap-3 w-full flex-1 overflow-y-auto mb-2 pr-1 overscroll-contain">
