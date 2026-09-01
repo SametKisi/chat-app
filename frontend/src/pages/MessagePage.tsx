@@ -1,30 +1,46 @@
 import { useEffect, useRef, useState } from "react";
-import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft, ImageSquare, CircleNotch } from "@phosphor-icons/react";
-import { useChatStore } from "../store/useChatStore.ts";
-import { supabase } from '../../supabaseClient';
+import { 
+    PaperPlaneRightIcon, 
+    UserIcon, 
+    UsersThree, 
+    ChatsTeardrop, 
+    Prohibit, 
+    ArrowLeft, 
+    ImageSquare, 
+    CircleNotch,
+    X,
+    Checks,
+    Check
+} from "@phosphor-icons/react";
+import { useChatStore } from "../store/useChatStore";
 
 const MessagePage = () => {
     const { 
         fetchMessages, 
         messageCache, 
         deletedMessage, 
-        handleRemoteDelete,
         removeMessageLocally,
         activeChat, 
         currentUser, 
         addMessage,
-        receiveIncomingMessage,
         setActiveChat,
         groupMembers,
         fetchGroupMembers,
         deleteGroup,
         leaveGroup,
-        sendImage,
+        sendImageWithMessage,
         uploadingImage,
-    } = useChatStore() as any;
+        markMessagesAsSeen,
+    } = useChatStore();
 
     const [newMessage, setNewMessage] = useState("");
     const [showMembers, setShowMembers] = useState(false);
+    
+    // Resim Önizleme ve Altyazı State'leri
+    const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+    const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+    const [imageCaption, setImageCaption] = useState("");
+
     const scrollRef = useRef<HTMLDivElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,10 +63,26 @@ const MessagePage = () => {
     const handleImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
-            sendImage(file);
+            setSelectedImageFile(file);
+            setPreviewImageUrl(URL.createObjectURL(file));
+            setImageCaption("");
         }
-        // aynı dosyayı tekrar seçebilmek için input'u sıfırla
         e.target.value = "";
+    };
+
+    const cancelImageModal = () => {
+        if (previewImageUrl) URL.revokeObjectURL(previewImageUrl);
+        setSelectedImageFile(null);
+        setPreviewImageUrl(null);
+        setImageCaption("");
+    };
+
+    const handleConfirmSendImage = async () => {
+        if (!selectedImageFile) return;
+        const file = selectedImageFile;
+        const caption = imageCaption.trim();
+        cancelImageModal();
+        await sendImageWithMessage(file, caption);
     };
 
     const handleGroupAction = () => {
@@ -67,39 +99,17 @@ const MessagePage = () => {
     };
 
     useEffect(() => {
-        if (activeChat && !messageCache[activeChat.id]) {
-            fetchMessages(activeChat.id);
-        }
-        if (activeChat?.isGroup) {
-            fetchGroupMembers(activeChat.id);
+        if (activeChat) {
+            if (!messageCache[activeChat.id]) {
+                fetchMessages(activeChat.id);
+            }
+            if (activeChat.isGroup) {
+                fetchGroupMembers(activeChat.id);
+            }
+            markMessagesAsSeen(activeChat.id);
         }
         setShowMembers(false);
-
-        const channel = supabase
-            .channel(`realtime-chat-${activeKey}`)
-            .on(
-                'postgres_changes',
-                { event: 'INSERT', schema: 'public', table: 'messages' },
-                (payload) => {
-                    const msg = payload.new as any;
-                    if (msg.sender_id !== currentUser?.id) {
-                        receiveIncomingMessage(msg);
-                    }
-                }
-            )
-            .on(
-                'postgres_changes',
-                { event: 'DELETE', schema: 'public', table: 'messages' },
-                (payload) => {
-                    handleRemoteDelete(payload.old.id);
-                }
-            )
-            .subscribe();
-
-        return () => {
-            supabase.removeChannel(channel);
-        };
-    }, [activeChat, currentUser, fetchMessages, receiveIncomingMessage, handleRemoteDelete, activeKey, messageCache, fetchGroupMembers]);
+    }, [activeChat?.id]);
 
     useEffect(() => {
         scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -121,7 +131,7 @@ const MessagePage = () => {
 
     return (
         <div className="fixed inset-0 md:relative flex flex-col h-[100dvh] w-full bg-[#0F3040] p-0 md:p-4 items-center justify-center overflow-hidden">
-            <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden justify-between">
+            <div className="w-full max-w-4xl h-full bg-[#0F3040] border-0 md:border md:border-[#111b21] rounded-none md:rounded-2xl p-3 md:p-4 flex flex-col shadow-2xl overflow-hidden justify-between relative">
                 
                 {/* Başlık Alanı */}
                 <div className="flex items-center gap-2.5 pb-2.5 mb-1 border-b border-[#325E6A]/50 shrink-0 select-none">
@@ -208,7 +218,7 @@ const MessagePage = () => {
                     {messages.map((msg: any) => {
                         const isMe = msg.sender_id === currentUser?.id;
                         const isDeleted = msg.is_deleted;
-                        const senderName = isMe ? "Sen" : (msg.sender_name || msg.sender?.name || activeChat.name);
+                        const senderName = isMe ? "Sen" : (msg.sender_name || activeChat.name);
                         const senderAvatar = isMe ? currentUser?.image : (msg.sender_image || activeChat.image);
 
                         return (
@@ -224,17 +234,26 @@ const MessagePage = () => {
                                             {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
 
+                                        {/* Tikler (WhatsApp tarzı Görüldü) */}
+                                        {!isGroup && !isDeleted && (
+                                            msg.is_seen ? (
+                                                <Checks size={15} weight="bold" className="text-blue-700" title="Görüldü" />
+                                            ) : (
+                                                <Check size={14} weight="bold" className="text-gray-700" title="İletildi" />
+                                            )
+                                        )}
+
                                         {!isDeleted ? (
                                             <button
                                                 onClick={() => deletedMessage(msg.id)}
-                                                className="text-[10px] md:text-xs text-red-600 hover:text-red-800 cursor-pointer font-medium"
+                                                className="text-[10px] md:text-xs text-red-600 hover:text-red-800 cursor-pointer font-medium ml-1"
                                             >
                                                 Sil
                                             </button>
                                         ) : (
                                             <button
                                                 onClick={() => removeMessageLocally(msg.id)}
-                                                className="text-[10px] md:text-xs text-slate-700 hover:text-red-700 underline cursor-pointer font-medium"
+                                                className="text-[10px] md:text-xs text-slate-700 hover:text-red-700 underline cursor-pointer font-medium ml-1"
                                             >
                                                 Kaldır
                                             </button>
@@ -261,26 +280,31 @@ const MessagePage = () => {
                                                 <Prohibit size={14} className="text-gray-600" />
                                                 Bu mesaj silindi
                                             </span>
-                                        ) : msg.image_url ? (
-                                            <div className="relative mt-1 max-w-[220px] md:max-w-[280px]">
-                                                <img
-                                                    src={msg.image_url}
-                                                    alt="Gönderilen görsel"
-                                                    onClick={() => !msg.isUploading && window.open(msg.image_url, "_blank")}
-                                                    className={`rounded-xl w-full h-auto object-cover border border-black/10 ${
-                                                        msg.isUploading ? 'opacity-60' : 'cursor-pointer'
-                                                    }`}
-                                                />
-                                                {msg.isUploading && (
-                                                    <div className="absolute inset-0 flex items-center justify-center">
-                                                        <CircleNotch size={26} className="text-white animate-spin drop-shadow" weight="bold" />
+                                        ) : (
+                                            <div className="flex flex-col gap-1 mt-0.5">
+                                                {msg.image_url && (
+                                                    <div className="relative max-w-[220px] md:max-w-[280px]">
+                                                        <img
+                                                            src={msg.image_url}
+                                                            alt="Görsel"
+                                                            onClick={() => !msg.isUploading && window.open(msg.image_url, "_blank")}
+                                                            className={`rounded-xl w-full h-auto object-cover border border-black/10 ${
+                                                                msg.isUploading ? 'opacity-60' : 'cursor-pointer'
+                                                            }`}
+                                                        />
+                                                        {msg.isUploading && (
+                                                            <div className="absolute inset-0 flex items-center justify-center">
+                                                                <CircleNotch size={26} className="text-white animate-spin drop-shadow" weight="bold" />
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
+                                                {msg.text && (
+                                                    <span className="text-xs md:text-sm text-gray-800 break-words leading-relaxed text-left">
+                                                        {msg.text}
+                                                    </span>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <span className="text-xs md:text-sm text-gray-800 break-words leading-relaxed">
-                                                {msg.text}
-                                            </span>
                                         )}
                                     </div>
                                 </div>
@@ -307,7 +331,7 @@ const MessagePage = () => {
                     <div ref={scrollRef}></div>
                 </div>
 
-                {/* Mesaj Yazma Alanı (Mobil Uyumlu & 16px Font) */}
+                {/* Mesaj Yazma Alanı */}
                 <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3.5 py-1 md:py-2 shrink-0 mb-safe gap-1.5">
                     <input
                         ref={fileInputRef}
@@ -353,6 +377,49 @@ const MessagePage = () => {
                         />
                     </button>
                 </div>
+
+                {/* WhatsApp Tarzı Resim Önizleme & Açıklama Modalı */}
+                {previewImageUrl && (
+                    <div className="absolute inset-0 z-50 bg-[#0c1317]/95 backdrop-blur-sm flex flex-col p-4 justify-between animate-in fade-in">
+                        <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-gray-200">Resim Gönder</span>
+                            <button
+                                type="button"
+                                onClick={cancelImageModal}
+                                className="p-2 rounded-full hover:bg-white/10 text-gray-300 hover:text-white transition"
+                            >
+                                <X size={22} weight="bold" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 flex items-center justify-center my-3 overflow-hidden">
+                            <img
+                                src={previewImageUrl}
+                                alt="Önizleme"
+                                className="max-h-[60vh] max-w-full rounded-xl object-contain shadow-2xl border border-white/10"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2 bg-[#202c33] rounded-2xl px-4 py-2">
+                            <input
+                                autoFocus
+                                type="text"
+                                placeholder="Bir açıklama ekleyin..."
+                                value={imageCaption}
+                                onChange={(e) => setImageCaption(e.target.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleConfirmSendImage(); }}
+                                className="flex-1 bg-transparent outline-none text-sm text-gray-100 placeholder:text-gray-400"
+                            />
+                            <button
+                                type="button"
+                                onClick={handleConfirmSendImage}
+                                className="p-2.5 rounded-full bg-[#00a884] hover:bg-[#02906f] active:scale-95 text-white transition flex items-center justify-center"
+                            >
+                                <PaperPlaneRightIcon size={20} weight="fill" />
+                            </button>
+                        </div>
+                    </div>
+                )}
 
             </div>
         </div>

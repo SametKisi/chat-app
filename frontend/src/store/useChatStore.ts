@@ -1,4 +1,3 @@
-// store/useChatStore.ts
 import { create } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { sendNativeNotification } from "../utils/notification";
@@ -34,6 +33,7 @@ export interface Message {
     sender_name?: string | null;
     sender_image?: string | null;
     created_at: string;
+    is_seen?: boolean;
     is_deleted?: boolean;
     isOptimistic?: boolean;
     isUploading?: boolean;
@@ -50,10 +50,11 @@ interface ChatStore {
     setActiveChat: (user: ChatUser | null) => void;
     addConversation: (user: ChatUser, markUnread?: boolean) => void;
     clearUnread: (userId: string) => void;
+    markMessagesAsSeen: (chatId: string) => Promise<void>;
     fetchConversations: () => Promise<void>;
     fetchMessages: (targetChatId?: string | null) => Promise<void>;
     addMessage: (text: string) => Promise<void>;
-    sendImage: (file: File) => Promise<void>;
+    sendImageWithMessage: (file: File, captionText: string) => Promise<void>;
     receiveIncomingMessage: (msg: Message) => void;
     deletedMessage: (id: string) => Promise<void>;
     handleRemoteDelete: (id: string) => void;
@@ -67,14 +68,13 @@ interface ChatStore {
     resetStore: () => void;
 }
 
-// Channel'ı modül seviyesinde tutuyoruz ki state değişse de tekrar tekrar açılmasın
 let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
 
-function subscribeRealtime(get: () => ChatStore) {
-    if (realtimeChannel) return; // zaten açık, tekrar açma
+function subscribeRealtime(get: () => ChatStore, set: (fn: (state: ChatStore) => Partial<ChatStore>) => void) {
+    if (realtimeChannel) return;
 
     realtimeChannel = supabase
-        .channel("realtime-messages")
+        .channel("realtime-messages-hub")
         .on(
             "postgres_changes",
             { event: "INSERT", schema: "public", table: "messages" },
@@ -88,6 +88,22 @@ function subscribeRealtime(get: () => ChatStore) {
         )
         .on(
             "postgres_changes",
+            { event: "UPDATE", schema: "public", table: "messages" },
+            (payload) => {
+                const updated = payload.new as Message;
+                set((state) => {
+                    const nextCache = { ...state.messageCache };
+                    Object.keys(nextCache).forEach((key) => {
+                        nextCache[key] = nextCache[key].map((m) =>
+                            m.id === updated.id ? { ...m, ...updated } : m
+                        );
+                    });
+                    return { messageCache: nextCache };
+                });
+            }
+        )
+        .on(
+            "postgres_changes",
             { event: "DELETE", schema: "public", table: "messages" },
             (payload) => {
                 get().handleRemoteDelete((payload.old as any).id);
@@ -97,8 +113,7 @@ function subscribeRealtime(get: () => ChatStore) {
             "postgres_changes",
             { event: "DELETE", schema: "public", table: "groups" },
             (payload) => {
-                const groupId = (payload.old as any).id;
-                get().handleGroupRemoved(groupId);
+                get().handleGroupRemoved((payload.old as any).id);
             }
         )
         .on(
@@ -129,8 +144,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     setCurrentUser: (user) => {
         const prev = get().currentUser;
-
-        // Aynı kullanıcıysa sadece objeyi güncelle (ör. image değişmiş olabilir)
         if (prev?.id === user?.id) {
             set({ currentUser: user });
             return;
@@ -141,7 +154,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
         if (user) {
             get().fetchConversations();
-            subscribeRealtime(get);
+            subscribeRealtime(get, set);
         }
     },
 
@@ -154,6 +167,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ activeChat: user });
         if (user) {
             get().clearUnread(user.id);
+            get().markMessagesAsSeen(user.id);
             if (!get().messageCache[user.id]) {
                 get().fetchMessages(user.id);
             }
@@ -168,6 +182,27 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             conversations: state.conversations.map((c) =>
                 c.id === userId ? { ...c, unreadCount: 0 } : c
             ),
+        }));
+    },
+
+    markMessagesAsSeen: async (chatId) => {
+        const { currentUser } = get();
+        if (!currentUser || !chatId) return;
+
+        await supabase
+            .from("messages")
+            .update({ is_seen: true })
+            .eq("receiver_id", currentUser.id)
+            .eq("sender_id", chatId)
+            .eq("is_seen", false);
+
+        set((state) => ({
+            messageCache: {
+                ...state.messageCache,
+                [chatId]: (state.messageCache[chatId] || []).map((m) =>
+                    m.sender_id === chatId ? { ...m, is_seen: true } : m
+                ),
+            },
         }));
     },
 
@@ -212,12 +247,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
 
         const memberRows = allMemberIds.map((uid) => ({ group_id: groupId, user_id: uid }));
-        const { error: memErr } = await supabase.from("group_members").insert(memberRows);
-
-        if (memErr) {
-            console.error("Grup üyeleri eklenemedi:", memErr);
-            alert("Grup oluştu ama üyeler eklenemedi: " + memErr.message);
-        }
+        await supabase.from("group_members").insert(memberRows);
 
         const newGroupItem: ChatUser = {
             id: groupId,
@@ -257,8 +287,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             set((state) => ({
                 groupMembers: { ...state.groupMembers, [groupId]: users as GroupMember[] },
             }));
-        } else if (usersErr) {
-            console.error("Grup üyeleri çekilemedi:", usersErr);
         }
     },
 
@@ -272,16 +300,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             return;
         }
 
-        // Önce üyeleri, sonra grubu sil
-        const { error: memErr } = await supabase.from("group_members").delete().eq("group_id", groupId);
-        if (memErr) {
-            console.error("Grup üyeleri silinemedi:", memErr);
-        }
-
+        await supabase.from("group_members").delete().eq("group_id", groupId);
         const { error } = await supabase.from("groups").delete().eq("id", groupId);
 
         if (error) {
-            console.error("Grup silinemedi:", error);
             alert("Grup silinemedi: " + error.message);
             return;
         }
@@ -309,7 +331,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             .eq("user_id", currentUser.id);
 
         if (error) {
-            console.error("Gruptan ayrılamadı:", error);
             alert("Gruptan ayrılamadı: " + error.message);
             return;
         }
@@ -341,9 +362,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     handleMemberRemoved: (groupId, userId) => {
         const { currentUser } = get();
-
         if (currentUser && userId === currentUser.id) {
-            // Kendisi başka bir cihazdan gruptan ayrılmış/çıkarılmış
             set((state) => {
                 const { [groupId]: _removedCache, ...restCache } = state.messageCache;
                 const { [groupId]: _removedMembers, ...restMembers } = state.groupMembers;
@@ -357,7 +376,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             return;
         }
 
-        // Başka bir üye ayrıldı, sadece üye listesinden çıkar
         set((state) => ({
             groupMembers: {
                 ...state.groupMembers,
@@ -371,13 +389,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (!currentUser) return;
 
         try {
-            const { data: memberRows, error: memberErr } = await supabase
+            const { data: memberRows } = await supabase
                 .from("group_members")
                 .select("group_id")
                 .eq("user_id", currentUser.id);
 
             let groupList: ChatUser[] = [];
-            if (!memberErr && memberRows && memberRows.length > 0) {
+            if (memberRows && memberRows.length > 0) {
                 const gIds = Array.from(new Set(memberRows.map((m) => m.group_id)));
                 const { data: groupsData } = await supabase
                     .from("groups")
@@ -412,7 +430,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             if (otherUserIds.size > 0) {
                 const { data: users } = await supabase
                     .from("user")
-                    .select("id, name, username")
+                    .select("id, name, username, image")
                     .in("id", Array.from(otherUserIds));
 
                 if (users) {
@@ -483,6 +501,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             sender_name: currentUser.name,
             sender_image: currentUser.image || null,
             created_at: new Date().toISOString(),
+            is_seen: false,
             isOptimistic: true,
         };
 
@@ -502,6 +521,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 group_id: isGroup ? activeChat.id : null,
                 sender_name: currentUser.name,
                 sender_image: currentUser.image || null,
+                is_seen: false,
             }])
             .select()
             .single();
@@ -517,7 +537,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }));
 
             const backendUrl = "https://messenger-backend-lido.onrender.com";
-
             if (!isGroup && activeChat.id) {
                 fetch(`${backendUrl}/api/send-message-notification`, {
                     method: "POST",
@@ -527,7 +546,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                         senderName: currentUser.name,
                         messageText: text,
                     }),
-                }).catch((err) => console.error("Mail isteği hatası:", err));
+                }).catch(() => {});
             } else if (isGroup && activeChat.id) {
                 fetch(`${backendUrl}/api/send-group-notification`, {
                     method: "POST",
@@ -539,12 +558,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                         groupName: activeChat.name,
                         messageText: text,
                     }),
-                }).catch((err) => console.error("Grup mail isteği hatası:", err));
+                }).catch(() => {});
             }
         }
     },
 
-    sendImage: async (file) => {
+    sendImageWithMessage: async (file: File, captionText: string) => {
         const { activeChat, currentUser, addConversation } = get();
         if (!currentUser || !activeChat) return;
 
@@ -566,7 +585,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
         const optimisticMsg: Message = {
             id: tempId,
-            text: "",
+            text: captionText,
             image_url: localPreviewUrl,
             sender_id: currentUser.id,
             receiver_id: isGroup ? null : activeChat.id,
@@ -574,6 +593,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             sender_name: currentUser.name,
             sender_image: currentUser.image || null,
             created_at: new Date().toISOString(),
+            is_seen: false,
             isOptimistic: true,
             isUploading: true,
         };
@@ -607,13 +627,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             const { data, error } = await supabase
                 .from("messages")
                 .insert([{
-                    text: "",
+                    text: captionText,
                     image_url: imageUrl,
                     sender_id: currentUser.id,
                     receiver_id: isGroup ? null : activeChat.id,
                     group_id: isGroup ? activeChat.id : null,
                     sender_name: currentUser.name,
                     sender_image: currentUser.image || null,
+                    is_seen: false,
                 }])
                 .select()
                 .single();
@@ -633,6 +654,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             URL.revokeObjectURL(localPreviewUrl);
 
             const backendUrl = "https://messenger-backend-lido.onrender.com";
+            const notifyText = captionText ? `📷 ${captionText}` : "📷 Fotoğraf";
             if (!isGroup && activeChat.id) {
                 fetch(`${backendUrl}/api/send-message-notification`, {
                     method: "POST",
@@ -640,25 +662,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                     body: JSON.stringify({
                         receiverId: activeChat.id,
                         senderName: currentUser.name,
-                        messageText: "📷 Fotoğraf",
+                        messageText: notifyText,
                     }),
-                }).catch((err) => console.error("Mail isteği hatası:", err));
-            } else if (isGroup && activeChat.id) {
-                fetch(`${backendUrl}/api/send-group-notification`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        groupId: activeChat.id,
-                        senderId: currentUser.id,
-                        senderName: currentUser.name,
-                        groupName: activeChat.name,
-                        messageText: "📷 Fotoğraf",
-                    }),
-                }).catch((err) => console.error("Grup mail isteği hatası:", err));
+                }).catch(() => {});
             }
         } catch (err) {
-            console.error("Resim gönderilemedi:", err);
-            alert("Resim gönderilemedi, tekrar dene.");
+            console.error("Resim yükleme hatası:", err);
+            alert("Resim gönderilemedi.");
             set((state) => ({
                 messageCache: {
                     ...state.messageCache,
@@ -671,14 +681,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     },
 
     receiveIncomingMessage: (msg) => {
-        const { currentUser, activeChat, addConversation, conversations } = get();
+        const { currentUser, activeChat, addConversation, conversations, markMessagesAsSeen } = get();
         if (!currentUser) return;
 
         if (msg.group_id) {
             const groupId = msg.group_id;
             const isChatOpen = activeChat?.id === groupId;
 
-            sendNativeNotification(`Grup: ${msg.sender_name || "Yeni Mesaj"}`, msg.text, msg.sender_image);
+            sendNativeNotification(`Grup: ${msg.sender_name || "Yeni Mesaj"}`, msg.text || "📷 Fotoğraf", msg.sender_image);
 
             const existingGroup = conversations.find((c) => c.id === groupId);
             if (!existingGroup) {
@@ -711,7 +721,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             const senderId = msg.sender_id;
             const isChatOpen = activeChat?.id === senderId;
 
-            sendNativeNotification(msg.sender_name || "Yeni Mesaj", msg.text, msg.sender_image);
+            if (isChatOpen) {
+                markMessagesAsSeen(senderId);
+            } else {
+                sendNativeNotification(msg.sender_name || "Yeni Mesaj", msg.text || "📷 Fotoğraf", msg.sender_image);
+            }
 
             const existingUser = conversations.find((c) => c.id === senderId);
             if (!existingUser) {
@@ -730,7 +744,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             set((state) => {
                 const chatMsgs = state.messageCache[senderId] || [];
                 if (chatMsgs.some((m) => m.id === msg.id)) return state;
-                return { messageCache: { ...state.messageCache, [senderId]: [...chatMsgs, msg] } };
+                return {
+                    messageCache: {
+                        ...state.messageCache,
+                        [senderId]: [...chatMsgs, isChatOpen ? { ...msg, is_seen: true } : msg],
+                    },
+                };
             });
         }
     },
