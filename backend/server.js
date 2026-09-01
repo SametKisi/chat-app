@@ -7,19 +7,12 @@ import { supabase } from './supabaseClient.js';
 import meRoutes from './routes/me.js';
 import { sendEmailNotification } from './utils/mailer.js';
 import pushRouter, { sendPushToUser } from './routes/push.js';
+import { isUserOnline } from './lib/presence.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-
-const gmailUser = (process.env.GMAIL_USER || process.env.SMTP_EMAIL || '').trim();
-const gmailPassClean = (process.env.GMAIL_APP_PASSWORD || process.env.SMTP_PASS || '').replace(/\s+/g, '');
-
-console.log('--- 🔍 NODEMAILER YAPILANDIRMA KONTROLÜ ---');
-console.log(`[NODEMAILER] Email: ${gmailUser ? '✅ TANIMLI (' + gmailUser + ')' : '❌ TANIMLI DEĞİL'}`);
-console.log(`[NODEMAILER] Pass: ${gmailPassClean ? '✅ TANIMLI (' + gmailPassClean.length + ' hane)' : '❌ TANIMLI DEĞİL'}`);
-console.log('-------------------------------------------');
 
 // CORS Yapılandırması
 app.use(cors({
@@ -82,17 +75,22 @@ app.post('/api/send-message-notification', async (req, res) => {
             return res.status(404).json({ error: 'Alıcı bulundu ancak e-posta adresi boş.' });
         }
 
-        console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}`);
+        const receiverOnline = isUserOnline(receiverId);
+        console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}, Online: ${receiverOnline}`);
 
-        // 📧 1. Nodemailer ile E-posta Gönderimi
+        // 📧 1. E-posta (sadece alıcı online DEĞİLSE)
         let mailInfo = null;
-        try {
-            mailInfo = await sendEmailNotification(user.email, senderName, messageText);
-        } catch (mailErr) {
-            console.error('⚠️ [NODEMAILER HATASI]:', mailErr.message);
+        if (!receiverOnline) {
+            try {
+                mailInfo = await sendEmailNotification(user.email, senderName, messageText);
+            } catch (mailErr) {
+                console.error('⚠️ [GMAIL API HATASI]:', mailErr.message);
+            }
+        } else {
+            console.log(`ℹ️ [BİLGİ] Alıcı online, mail atlanıyor.`);
         }
 
-        // 🔔 2. Web Push Bildirimi
+        // 🔔 2. Web Push Bildirimi (her durumda)
         try {
             if (typeof sendPushToUser === 'function') {
                 await sendPushToUser(receiverId, senderName, messageText, '/');
@@ -107,6 +105,7 @@ app.post('/api/send-message-notification', async (req, res) => {
         return res.status(200).json({
             success: true,
             mailSent: !!mailInfo,
+            receiverOnline,
             to: user.email,
             messageId: mailInfo?.messageId ?? null
         });
