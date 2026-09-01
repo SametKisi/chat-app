@@ -1,6 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { MagnifyingGlassIcon, SignOutIcon, UserIcon, UsersThree, UserPlus } from "@phosphor-icons/react";
+import { 
+    MagnifyingGlassIcon, 
+    SignOutIcon, 
+    UserIcon, 
+    UsersThree, 
+    UserPlus, 
+    Camera, 
+    CircleNotch 
+} from "@phosphor-icons/react";
 import { logoutManager } from "../utils/logoutManager";
 import { useSearchUsers } from "../hooks/useSearchUsers";
 import { useChatStore, type ChatUser } from "../store/useChatStore";
@@ -16,7 +24,9 @@ const SideBar = () => {
     const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
     const { users, loading: isSearching } = useSearchUsers(searchTerm);
     const [isLoading, setIsLoading] = useState(false);
+    const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
     const [isFetchingConversations, setIsFetchingConversations] = useState(true);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const session = useSession();
 
     const {
@@ -27,11 +37,11 @@ const SideBar = () => {
         setCurrentUser,
         fetchConversations,
         currentUser,
+        updateProfileImage,
         resetStore
     } = useChatStore() as any;
 
     useEffect(() => {
-        // Sayfa açıldığında mobil/masaüstü bildirim izni iste
         requestNotificationPermission();
     }, []);
 
@@ -84,6 +94,18 @@ const SideBar = () => {
         setSearchTerm("");
     };
 
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsUpdatingAvatar(true);
+        if (updateProfileImage) {
+            await updateProfileImage(file);
+        }
+        setIsUpdatingAvatar(false);
+        e.target.value = "";
+    };
+
     return (
         <>
             <CreateGroupModal
@@ -110,7 +132,6 @@ const SideBar = () => {
                     </div>
                     <button
                         onClick={() => setIsGroupModalOpen(true)}
-                        title="Yeni Grup Oluştur"
                         className="p-2.5 bg-[#111b21] border border-[#2a3942] hover:border-[#00a884] text-emerald-400 rounded-xl transition hover:bg-[#2a3942]"
                     >
                         <UserPlus size={20} weight="bold" />
@@ -214,15 +235,37 @@ const SideBar = () => {
 
                 {/* Alt Kısım: Profil Kartı & Çıkış */}
                 <div className="mt-auto flex flex-col gap-2 pt-2 border-t border-[#2a3942] shrink-0">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleAvatarChange}
+                        className="hidden"
+                    />
+
                     {currentUser && (
                         <div className="flex items-center gap-3 p-2 rounded-xl bg-[#111b21]/70 border border-[#2a3942]">
-                            <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0 overflow-hidden">
+                            {/* Profil Fotoğrafı ve Değiştirme Butonu */}
+                            <div 
+                                onClick={() => !isUpdatingAvatar && fileInputRef.current?.click()}
+                                className="relative w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 text-emerald-400 shrink-0 overflow-hidden cursor-pointer group"
+                            >
                                 {currentUser.image ? (
                                     <img src={currentUser.image} alt={currentUser.name} className="w-full h-full object-cover" />
                                 ) : (
                                     <UserIcon size={20} weight="bold" />
                                 )}
+
+                                {/* Hover Overlay */}
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                    {isUpdatingAvatar ? (
+                                        <CircleNotch size={18} className="animate-spin text-emerald-400" />
+                                    ) : (
+                                        <Camera size={16} weight="bold" />
+                                    )}
+                                </div>
                             </div>
+
                             <div className="flex flex-col min-w-0 flex-1">
                                 <span className="text-sm font-bold text-gray-200 truncate">
                                     {currentUser.name}

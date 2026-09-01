@@ -47,6 +47,7 @@ interface ChatStore {
     groupMembers: Record<string, GroupMember[]>;
     uploadingImage: boolean;
     setCurrentUser: (user: ChatUser | null) => void;
+    updateProfileImage: (file: File) => Promise<void>;
     setActiveChat: (user: ChatUser | null) => void;
     addConversation: (user: ChatUser, markUnread?: boolean) => void;
     clearUnread: (userId: string) => void;
@@ -163,6 +164,65 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         set({ currentUser: null, activeChat: null, conversations: [], messageCache: {}, groupMembers: {} });
     },
 
+    updateProfileImage: async (file: File) => {
+        const { currentUser } = get();
+        if (!currentUser) return;
+
+        if (!file.type.startsWith("image/")) {
+            alert("Lütfen geçerli bir resim formatı seçin.");
+            return;
+        }
+
+        try {
+            const optimizedFile = await resizeImage(file);
+            const ext = (optimizedFile.name.split(".").pop() || "jpg").toLowerCase();
+            // Cache engeli için timestamp ekliyoruz
+            const path = `avatars/${currentUser.id}_${Date.now()}.${ext}`;
+
+            // Storage'a yükle
+            const { error: uploadErr } = await supabase.storage
+                .from(IMAGE_BUCKET)
+                .upload(path, optimizedFile, {
+                    cacheControl: "3600",
+                    upsert: true,
+                    contentType: optimizedFile.type || "image/jpeg",
+                });
+
+            if (uploadErr) throw uploadErr;
+
+            // Public URL al
+            const { data: publicUrlData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+            const newImageUrl = publicUrlData.publicUrl;
+
+            // 1. Veritabanındaki "user" tablosunu güncelle
+            const { error: dbErr } = await supabase
+                .from("user")
+                .update({ image: newImageUrl })
+                .eq("id", currentUser.id);
+
+            if (dbErr) throw dbErr;
+
+            // 2. Zustand state'indeki kullanıcıyı güncelle
+            const updatedUser = { ...currentUser, image: newImageUrl };
+            set({ currentUser: updatedUser });
+
+            // 3. Mesaj geçmişindeki ve konuşma listesindeki kendi resmini de anlık güncelle
+            set((state) => {
+                const nextCache = { ...state.messageCache };
+                Object.keys(nextCache).forEach((key) => {
+                    nextCache[key] = nextCache[key].map((m) =>
+                        m.sender_id === currentUser.id ? { ...m, sender_image: newImageUrl } : m
+                    );
+                });
+                return { messageCache: nextCache };
+            });
+
+            alert("Profil fotoğrafınız başarıyla güncellendi!");
+        } catch (err: any) {
+            console.error("Profil fotoğrafı güncellenemedi:", err);
+            alert("Profil resmi yüklenirken bir hata oluştu: " + (err?.message || ""));
+        }
+    },
     setActiveChat: (user) => {
         set({ activeChat: user });
         if (user) {
