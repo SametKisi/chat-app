@@ -1,17 +1,17 @@
 import { router } from './route/route.tsx'
 import { RouterProvider } from 'react-router-dom'
 import { usePresence } from "./hooks/usePrefesences";
-import { useChatStore } from "./store/useChatStore"; // projendeki gerçek yol neyse
+import { authClient } from "./lib/authClient.ts"; // projendeki gerçek dosya yolu neyse
 
 function App() {
-  const { currentUser } = useChatStore() as any; // currentUser'ı nereden alıyorsan oradan
+  const sessionResult = authClient.useSession();
+  const userId = (sessionResult?.data as any)?.user?.id;
 
-  usePresence(currentUser?.id);
+  usePresence(userId);
+
   return (
     <>
       <RouterProvider router={router} />
     </>
-  )
+  );
 }
-
-export default App
