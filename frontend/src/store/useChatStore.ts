@@ -337,8 +337,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                 },
             }));
 
+            const backendUrl = "https://messenger-backend-lido.onrender.com";
+
             if (!isGroup && activeChat.id) {
-                const backendUrl = "https://messenger-backend-lido.onrender.com";
                 fetch(`${backendUrl}/api/send-message-notification`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -348,6 +349,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                         messageText: text,
                     }),
                 }).catch((err) => console.error("Mail isteği hatası:", err));
+            } else if (isGroup && activeChat.id) {
+                fetch(`${backendUrl}/api/send-group-notification`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        groupId: activeChat.id,
+                        senderId: currentUser.id,
+                        senderName: currentUser.name,
+                        groupName: activeChat.name,
+                        messageText: text,
+                    }),
+                }).catch((err) => console.error("Grup mail isteği hatası:", err));
             }
         }
     },
