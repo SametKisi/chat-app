@@ -2,6 +2,10 @@
 import { create } from "zustand";
 import { supabase } from "../../supabaseClient";
 import { sendNativeNotification } from "../utils/notification";
+import { resizeImage } from "../utils/imageResize";
+
+const IMAGE_BUCKET = "images";
+const MAX_IMAGE_MB = 10;
 
 export interface ChatUser {
     id: string;
@@ -23,6 +27,7 @@ export interface GroupMember {
 export interface Message {
     id: string;
     text: string;
+    image_url?: string | null;
     sender_id: string;
     receiver_id: string | null;
     group_id?: string | null;
@@ -31,6 +36,7 @@ export interface Message {
     created_at: string;
     is_deleted?: boolean;
     isOptimistic?: boolean;
+    isUploading?: boolean;
 }
 
 interface ChatStore {
@@ -39,6 +45,7 @@ interface ChatStore {
     conversations: ChatUser[];
     messageCache: Record<string, Message[]>;
     groupMembers: Record<string, GroupMember[]>;
+    uploadingImage: boolean;
     setCurrentUser: (user: ChatUser | null) => void;
     setActiveChat: (user: ChatUser | null) => void;
     addConversation: (user: ChatUser, markUnread?: boolean) => void;
@@ -46,6 +53,7 @@ interface ChatStore {
     fetchConversations: () => Promise<void>;
     fetchMessages: (targetChatId?: string | null) => Promise<void>;
     addMessage: (text: string) => Promise<void>;
+    sendImage: (file: File) => Promise<void>;
     receiveIncomingMessage: (msg: Message) => void;
     deletedMessage: (id: string) => Promise<void>;
     handleRemoteDelete: (id: string) => void;
@@ -117,6 +125,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     conversations: [],
     messageCache: {},
     groupMembers: {},
+    uploadingImage: false,
 
     setCurrentUser: (user) => {
         const prev = get().currentUser;
@@ -535,6 +544,132 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         }
     },
 
+    sendImage: async (file) => {
+        const { activeChat, currentUser, addConversation } = get();
+        if (!currentUser || !activeChat) return;
+
+        if (!file.type.startsWith("image/")) {
+            alert("Lütfen bir resim dosyası seç.");
+            return;
+        }
+        if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
+            alert(`Resim çok büyük (maks ${MAX_IMAGE_MB}MB).`);
+            return;
+        }
+
+        addConversation(activeChat, false);
+
+        const isGroup = Boolean(activeChat.isGroup);
+        const targetId = activeChat.id;
+        const tempId = `temp-${Date.now()}-${Math.random()}`;
+        const localPreviewUrl = URL.createObjectURL(file);
+
+        const optimisticMsg: Message = {
+            id: tempId,
+            text: "",
+            image_url: localPreviewUrl,
+            sender_id: currentUser.id,
+            receiver_id: isGroup ? null : activeChat.id,
+            group_id: isGroup ? activeChat.id : null,
+            sender_name: currentUser.name,
+            sender_image: currentUser.image || null,
+            created_at: new Date().toISOString(),
+            isOptimistic: true,
+            isUploading: true,
+        };
+
+        set((state) => ({
+            messageCache: {
+                ...state.messageCache,
+                [targetId]: [...(state.messageCache[targetId] || []), optimisticMsg],
+            },
+            uploadingImage: true,
+        }));
+
+        try {
+            const optimizedFile = await resizeImage(file);
+            const ext = (optimizedFile.name.split(".").pop() || "jpg").toLowerCase();
+            const path = `${currentUser.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+            const { error: uploadErr } = await supabase.storage
+                .from(IMAGE_BUCKET)
+                .upload(path, optimizedFile, {
+                    cacheControl: "3600",
+                    upsert: false,
+                    contentType: optimizedFile.type || "image/jpeg",
+                });
+
+            if (uploadErr) throw uploadErr;
+
+            const { data: publicUrlData } = supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path);
+            const imageUrl = publicUrlData.publicUrl;
+
+            const { data, error } = await supabase
+                .from("messages")
+                .insert([{
+                    text: "",
+                    image_url: imageUrl,
+                    sender_id: currentUser.id,
+                    receiver_id: isGroup ? null : activeChat.id,
+                    group_id: isGroup ? activeChat.id : null,
+                    sender_name: currentUser.name,
+                    sender_image: currentUser.image || null,
+                }])
+                .select()
+                .single();
+
+            if (error) throw error;
+
+            set((state) => ({
+                messageCache: {
+                    ...state.messageCache,
+                    [targetId]: (state.messageCache[targetId] || []).map((m) =>
+                        m.id === tempId ? (data as Message) : m
+                    ),
+                },
+                uploadingImage: false,
+            }));
+
+            URL.revokeObjectURL(localPreviewUrl);
+
+            const backendUrl = "https://messenger-backend-lido.onrender.com";
+            if (!isGroup && activeChat.id) {
+                fetch(`${backendUrl}/api/send-message-notification`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        receiverId: activeChat.id,
+                        senderName: currentUser.name,
+                        messageText: "📷 Fotoğraf",
+                    }),
+                }).catch((err) => console.error("Mail isteği hatası:", err));
+            } else if (isGroup && activeChat.id) {
+                fetch(`${backendUrl}/api/send-group-notification`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        groupId: activeChat.id,
+                        senderId: currentUser.id,
+                        senderName: currentUser.name,
+                        groupName: activeChat.name,
+                        messageText: "📷 Fotoğraf",
+                    }),
+                }).catch((err) => console.error("Grup mail isteği hatası:", err));
+            }
+        } catch (err) {
+            console.error("Resim gönderilemedi:", err);
+            alert("Resim gönderilemedi, tekrar dene.");
+            set((state) => ({
+                messageCache: {
+                    ...state.messageCache,
+                    [targetId]: (state.messageCache[targetId] || []).filter((m) => m.id !== tempId),
+                },
+                uploadingImage: false,
+            }));
+            URL.revokeObjectURL(localPreviewUrl);
+        }
+    },
+
     receiveIncomingMessage: (msg) => {
         const { currentUser, activeChat, addConversation, conversations } = get();
         if (!currentUser) return;
@@ -608,7 +743,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             messageCache: {
                 ...state.messageCache,
                 [activeChat.id]: (state.messageCache[activeChat.id] || []).map((m) =>
-                    m.id === id ? { ...m, text: "Bu mesaj silindi", is_deleted: true } : m
+                    m.id === id ? { ...m, text: "Bu mesaj silindi", image_url: null, is_deleted: true } : m
                 ),
             },
         }));
@@ -621,7 +756,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             const updatedCache: Record<string, Message[]> = {};
             Object.keys(state.messageCache).forEach((key) => {
                 updatedCache[key] = state.messageCache[key].map((m) =>
-                    m.id === id ? { ...m, text: "Bu mesaj silindi", is_deleted: true } : m
+                    m.id === id ? { ...m, text: "Bu mesaj silindi", image_url: null, is_deleted: true } : m
                 );
             });
             return { messageCache: updatedCache };

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft } from "@phosphor-icons/react";
+import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft, ImageSquare, CircleNotch } from "@phosphor-icons/react";
 import { useChatStore } from "../store/useChatStore.ts";
 import { supabase } from '../../supabaseClient';
 
@@ -19,11 +19,14 @@ const MessagePage = () => {
         fetchGroupMembers,
         deleteGroup,
         leaveGroup,
+        sendImage,
+        uploadingImage,
     } = useChatStore() as any;
 
     const [newMessage, setNewMessage] = useState("");
     const [showMembers, setShowMembers] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const activeKey = activeChat ? activeChat.id : "";
     const messages = activeKey ? messageCache[activeKey] || [] : [];
@@ -35,6 +38,19 @@ const MessagePage = () => {
         if (newMessage.trim() === "" || !activeChat) return;
         addMessage(newMessage);
         setNewMessage("");
+    };
+
+    const handlePickImage = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            sendImage(file);
+        }
+        // aynı dosyayı tekrar seçebilmek için input'u sıfırla
+        e.target.value = "";
     };
 
     const handleGroupAction = () => {
@@ -245,6 +261,22 @@ const MessagePage = () => {
                                                 <Prohibit size={14} className="text-gray-600" />
                                                 Bu mesaj silindi
                                             </span>
+                                        ) : msg.image_url ? (
+                                            <div className="relative mt-1 max-w-[220px] md:max-w-[280px]">
+                                                <img
+                                                    src={msg.image_url}
+                                                    alt="Gönderilen görsel"
+                                                    onClick={() => !msg.isUploading && window.open(msg.image_url, "_blank")}
+                                                    className={`rounded-xl w-full h-auto object-cover border border-black/10 ${
+                                                        msg.isUploading ? 'opacity-60' : 'cursor-pointer'
+                                                    }`}
+                                                />
+                                                {msg.isUploading && (
+                                                    <div className="absolute inset-0 flex items-center justify-center">
+                                                        <CircleNotch size={26} className="text-white animate-spin drop-shadow" weight="bold" />
+                                                    </div>
+                                                )}
+                                            </div>
                                         ) : (
                                             <span className="text-xs md:text-sm text-gray-800 break-words leading-relaxed">
                                                 {msg.text}
@@ -276,7 +308,31 @@ const MessagePage = () => {
                 </div>
 
                 {/* Mesaj Yazma Alanı (Mobil Uyumlu & 16px Font) */}
-                <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3.5 py-1 md:py-2 shrink-0 mb-safe">
+                <div className="flex items-center w-full bg-[#325E6A] rounded-full px-3.5 py-1 md:py-2 shrink-0 mb-safe gap-1.5">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageSelected}
+                        className="hidden"
+                    />
+                    <button
+                        type="button"
+                        onClick={handlePickImage}
+                        disabled={uploadingImage}
+                        className="p-1 active:scale-90 transition shrink-0 disabled:opacity-40"
+                    >
+                        {uploadingImage ? (
+                            <CircleNotch size={22} className="text-[#aba9a9] animate-spin" weight="bold" />
+                        ) : (
+                            <ImageSquare
+                                size={22}
+                                weight="fill"
+                                className="text-[#aba9a9] hover:text-amber-400 active:text-amber-500 cursor-pointer transition-colors"
+                            />
+                        )}
+                    </button>
+
                     <input
                         onKeyDown={(e) => { if (e.key === 'Enter') { sendMessage(); } }}
                         value={newMessage}
