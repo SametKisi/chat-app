@@ -237,9 +237,9 @@ const MessagePage = () => {
                                         {/* Tikler (WhatsApp tarzı Görüldü) */}
                                         {!isGroup && !isDeleted && (
                                             msg.is_seen ? (
-                                                <Checks size={15} weight="bold" className="text-blue-700" title="Görüldü" />
+                                                <Checks size={15} weight="bold" className="text-blue-700" />
                                             ) : (
-                                                <Check size={14} weight="bold" className="text-gray-700" title="İletildi" />
+                                                <Check size={14} weight="bold" className="text-gray-700" />
                                             )
                                         )}
 
