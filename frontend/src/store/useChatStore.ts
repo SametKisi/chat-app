@@ -254,7 +254,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     },
 
     deleteGroup: async (groupId) => {
-        const { currentUser, activeChat, conversations } = get();
+        const { currentUser, conversations } = get();
         if (!currentUser) return;
 
         const group = conversations.find((c) => c.id === groupId);
