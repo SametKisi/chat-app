@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { PaperPlaneRightIcon, UserIcon, UsersThree, ChatsTeardrop, Prohibit, ArrowLeft } from "@phosphor-icons/react";
 import { useChatStore } from "../store/useChatStore.ts";
 import { supabase } from '../../supabaseClient';
-import { usePresence } from "../hooks/usePrefesences.ts";
 
 const MessagePage = () => {
     const { 
@@ -17,8 +16,6 @@ const MessagePage = () => {
         receiveIncomingMessage,
         setActiveChat
     } = useChatStore() as any;
-
-    usePresence(currentUser?.id);
 
     const [newMessage, setNewMessage] = useState("");
     const scrollRef = useRef<HTMLDivElement>(null);

@@ -14,6 +14,13 @@ export function usePresence(userId?: string) {
                 await channel.track({ online_at: new Date().toISOString() });
             }
         });
+        channel.subscribe(async (status) => {
+            console.log('[PRESENCE] Kanal durumu:', status);
+            if (status === "SUBSCRIBED") {
+                await channel.track({ online_at: new Date().toISOString() });
+                console.log('[PRESENCE] Track edildi, userId:', userId);
+            }
+        });
 
         return () => {
             channel.unsubscribe();
