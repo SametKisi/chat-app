@@ -6,7 +6,6 @@ import { auth } from './lib/auth.js';
 import { supabase } from './supabaseClient.js';
 import meRoutes from './routes/me.js';
 import { sendEmailNotification } from './utils/mailer.js';
-import pushRouter, { sendPushToUser } from './routes/push.js';
 import { isUserOnline } from './lib/presence.js';
 
 dotenv.config();
@@ -14,7 +13,6 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5001;
 
-// CORS Yapılandırması
 app.use(cors({
     origin: (origin, callback) => {
         callback(null, true);
@@ -25,25 +23,18 @@ app.use(cors({
     exposedHeaders: ['set-auth-token']
 }));
 
-// Better-Auth Rotaları
 app.all(/^\/api\/auth\/.*/, toNodeHandler(auth));
 app.all('/api/auth', toNodeHandler(auth));
 
 app.use(express.json());
 
-// Gelen istek loglayıcı
 app.use((req, res, next) => {
     console.log(`[GELEN İSTEK] ${req.method} -> ${req.url}`);
     next();
 });
 
-// Korumalı Kullanıcı Rotaları
 app.use('/api', meRoutes);
 
-// Push Bildirim Rotaları
-app.use('/api', pushRouter);
-
-// ✉️ E-POSTA + PUSH BİLDİRİM ROTASI
 app.post('/api/send-message-notification', async (req, res) => {
     const startTime = Date.now();
     console.log('\n================== 📬 BİLDİRİM İSTEĞİ BAŞLADI ==================');
@@ -57,7 +48,7 @@ app.post('/api/send-message-notification', async (req, res) => {
             return res.status(400).json({ error: 'Eksik parametre (receiverId veya senderName yok)' });
         }
 
-        console.log(`🔍 [1/2] Supabase 'user' tablosunda aranıyor: ID = "${receiverId}"`);
+        console.log(`🔍 Supabase 'user' tablosunda aranıyor: ID = "${receiverId}"`);
 
         const { data: user, error: userError } = await supabase
             .from('user')
@@ -76,9 +67,8 @@ app.post('/api/send-message-notification', async (req, res) => {
         }
 
         const receiverOnline = isUserOnline(receiverId);
-        console.log(`🎯 [2/2] Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}, Online: ${receiverOnline}`);
+        console.log(`🎯 Alıcı Bulundu -> İsim: ${user.name}, Email: ${user.email}, Online: ${receiverOnline}`);
 
-        // 📧 1. E-posta (sadece alıcı online DEĞİLSE)
         let mailInfo = null;
         if (!receiverOnline) {
             try {
@@ -88,15 +78,6 @@ app.post('/api/send-message-notification', async (req, res) => {
             }
         } else {
             console.log(`ℹ️ [BİLGİ] Alıcı online, mail atlanıyor.`);
-        }
-
-        // 🔔 2. Web Push Bildirimi (her durumda)
-        try {
-            if (typeof sendPushToUser === 'function') {
-                await sendPushToUser(receiverId, senderName, messageText, '/');
-            }
-        } catch (pushErr) {
-            console.error('⚠️ [PUSH HATASI]:', pushErr.message);
         }
 
         console.log(`[INFO] Toplam Süre: ${Date.now() - startTime}ms`);
@@ -113,10 +94,10 @@ app.post('/api/send-message-notification', async (req, res) => {
     } catch (error) {
         console.error('🔥 [KRİTİK HATA] Route çöktü:');
         console.error(error);
-        console.log('================================================================\n');
         return res.status(500).json({ error: error.message });
     }
 });
+
 app.post('/api/send-group-notification', async (req, res) => {
     const startTime = Date.now();
     console.log('\n================== 📬 GRUP BİLDİRİM İSTEĞİ BAŞLADI ==================');
@@ -129,7 +110,6 @@ app.post('/api/send-group-notification', async (req, res) => {
             return res.status(400).json({ error: 'Eksik parametre (groupId, senderId veya senderName yok)' });
         }
 
-        // 1. Grup üyelerini çek (gönderen hariç)
         const { data: memberRows, error: memberErr } = await supabase
             .from('group_members')
             .select('user_id')
@@ -148,7 +128,6 @@ app.post('/api/send-group-notification', async (req, res) => {
             return res.status(200).json({ success: true, notified: 0 });
         }
 
-        // 2. Üyelerin isim/email bilgilerini çek
         const { data: users, error: userErr } = await supabase
             .from('user')
             .select('id, name, email')
@@ -161,23 +140,15 @@ app.post('/api/send-group-notification', async (req, res) => {
 
         const groupLabel = groupName || 'Grup';
 
-        // 3. Her üyeye ayrı ayrı mail (online değilse) + push gönder
         const results = await Promise.allSettled(
             (users || []).map(async (user) => {
                 const online = isUserOnline(user.id);
-
                 if (!online && user.email) {
                     try {
                         await sendEmailNotification(user.email, `${senderName} (${groupLabel})`, messageText);
                     } catch (mailErr) {
                         console.error(`⚠️ [GMAIL API HATASI] ${user.id}:`, mailErr.message);
                     }
-                }
-
-                try {
-                    await sendPushToUser(user.id, `${groupLabel}: ${senderName}`, messageText, '/');
-                } catch (pushErr) {
-                    console.error(`⚠️ [PUSH HATASI] ${user.id}:`, pushErr.message);
                 }
             })
         );
@@ -192,7 +163,7 @@ app.post('/api/send-group-notification', async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
-// Mesaj Rotaları
+
 app.get('/api/messages', async (req, res) => {
     try {
         const { data, error } = await supabase
