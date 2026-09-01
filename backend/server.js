@@ -117,7 +117,81 @@ app.post('/api/send-message-notification', async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
+app.post('/api/send-group-notification', async (req, res) => {
+    const startTime = Date.now();
+    console.log('\n================== 📬 GRUP BİLDİRİM İSTEĞİ BAŞLADI ==================');
+    console.log('[REQ BODY]:', JSON.stringify(req.body, null, 2));
 
+    try {
+        const { groupId, senderId, senderName, groupName, messageText } = req.body;
+
+        if (!groupId || !senderId || !senderName) {
+            return res.status(400).json({ error: 'Eksik parametre (groupId, senderId veya senderName yok)' });
+        }
+
+        // 1. Grup üyelerini çek (gönderen hariç)
+        const { data: memberRows, error: memberErr } = await supabase
+            .from('group_members')
+            .select('user_id')
+            .eq('group_id', groupId)
+            .neq('user_id', senderId);
+
+        if (memberErr) {
+            console.error('❌ [SUPABASE HATASI]:', memberErr.message);
+            return res.status(500).json({ error: memberErr.message });
+        }
+
+        const memberIds = (memberRows || []).map((m) => m.user_id);
+        console.log(`👥 [ÜYELER] ${memberIds.length} alıcı bulundu (gönderen hariç)`);
+
+        if (memberIds.length === 0) {
+            return res.status(200).json({ success: true, notified: 0 });
+        }
+
+        // 2. Üyelerin isim/email bilgilerini çek
+        const { data: users, error: userErr } = await supabase
+            .from('user')
+            .select('id, name, email')
+            .in('id', memberIds);
+
+        if (userErr) {
+            console.error('❌ [SUPABASE HATASI]:', userErr.message);
+            return res.status(500).json({ error: userErr.message });
+        }
+
+        const groupLabel = groupName || 'Grup';
+
+        // 3. Her üyeye ayrı ayrı mail (online değilse) + push gönder
+        const results = await Promise.allSettled(
+            (users || []).map(async (user) => {
+                const online = isUserOnline(user.id);
+
+                if (!online && user.email) {
+                    try {
+                        await sendEmailNotification(user.email, `${senderName} (${groupLabel})`, messageText);
+                    } catch (mailErr) {
+                        console.error(`⚠️ [GMAIL API HATASI] ${user.id}:`, mailErr.message);
+                    }
+                }
+
+                try {
+                    await sendPushToUser(user.id, `${groupLabel}: ${senderName}`, messageText, '/');
+                } catch (pushErr) {
+                    console.error(`⚠️ [PUSH HATASI] ${user.id}:`, pushErr.message);
+                }
+            })
+        );
+
+        console.log(`[INFO] Toplam Süre: ${Date.now() - startTime}ms`);
+        console.log('================================================================\n');
+
+        return res.status(200).json({ success: true, notified: results.length });
+
+    } catch (error) {
+        console.error('🔥 [KRİTİK HATA] Grup route çöktü:', error);
+        return res.status(500).json({ error: error.message });
+    }
+});
 // Mesaj Rotaları
 app.get('/api/messages', async (req, res) => {
     try {
