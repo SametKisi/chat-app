@@ -7,7 +7,7 @@ interface MessageInputBarProps {
     onSend: () => void;
     onPickImage: () => void;
     uploadingImage: boolean;
-    fileInputRef: RefObject<HTMLInputElement>;
+    fileInputRef: RefObject<HTMLInputElement | null>;
     onImageSelected: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
