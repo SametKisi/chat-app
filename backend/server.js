@@ -207,9 +207,7 @@ app.delete('/api/messages/:id', async (req, res) => {
         res.status(500).json({ error: 'Sunucu hatası oluştu' });
     }
 });
-router.get('api/ping', (req, res) => {
-    res.json({ status: 'awake' });
-});
+
 
 app.listen(PORT, () => {
     console.log(`Sunucu ${PORT} portunda başarıyla çalışıyor 🚀`);

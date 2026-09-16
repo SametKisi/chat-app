@@ -19,5 +19,8 @@ router.get('/me', requireAuth, async (req, res) => {
         return res.status(500).json({ hata: 'Sunucu hatası.' });
     }
 });
+router.get('/ping', (req, res) => {
+    res.json({ status: 'awake' });
+});
 
 export default router;
